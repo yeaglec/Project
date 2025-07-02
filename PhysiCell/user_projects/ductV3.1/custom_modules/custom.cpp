@@ -98,7 +98,7 @@ std::vector<std::vector<double>> generate_boundary_shape(double a, double b, dou
 	std::vector<std::vector<double>> pts;
 	pts.reserve(num_points);
     
-	// Generating points for a deformed ellipse like shape
+	// Generating points for a deformed ellipse like shape!
     for (int i = 0; i < num_points; i++) {
         
         double theta = 2.0 * M_PI * i / (num_points - 1);
