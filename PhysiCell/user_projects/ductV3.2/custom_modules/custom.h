@@ -69,7 +69,7 @@
 #include <cmath>
 #include "../core/PhysiCell.h"
 #include "../modules/PhysiCell_standard_modules.h" 
-#include "fast_marching_method.hpp"
+// #include "fast_marching_method.hpp"
 
 using namespace BioFVM; 
 using namespace PhysiCell;
@@ -98,139 +98,15 @@ void contact_function( Cell* pMe, Phenotype& phenoMe , Cell* pOther, Phenotype& 
 double distance_to_membrane(Cell* pCell, Phenotype& phenotype, double dt);
 void basement_membrane_interaction(Cell* pCell, Phenotype& phenotype, double dt);
 
+// Global variables for the Level Set Method
+static std::vector<std::vector<double>> level_set_phi; 
+static double ls_dx = 0.0, ls_dy = 0.0;
+static double ls_xmin = 0.0, ls_ymin = 0.0; 
+
+
 // _____________________________________
 // Defining the FMM
 
 // In custom.cpp
 
 
-void compute_sdf_from_initial_boundary( std::vector<double>& initial_phi )
-{
-    // 1. --- Define Grid Properties ---
-    const std::array<int, 3> grid_size = {
-        (int)microenvironment.mesh.x_coordinates.size(),
-        (int)microenvironment.mesh.y_coordinates.size(),
-        (int)microenvironment.mesh.z_coordinates.size()
-    };
-    const std::array<double, 3> grid_spacing = {
-        microenvironment.mesh.dx,
-        microenvironment.mesh.dy,
-        microenvironment.mesh.dz
-    };
-
-    // 2. --- Define the Speed ---
-    // For a distance function, the speed is uniformly 1.0
-    const std::vector<double> speed( microenvironment.number_of_voxels(), 1.0 );
-
-    // 3. --- Identify Known Points (The "Seeds") ---
-    std::vector<std::array<int, 3>> known_indices;
-    std::vector<double> known_distances;
-
-    // We need to seed the FMM with points on the boundary (dist=0),
-    // points just inside (dist<0), and points just outside (dist>0).
-    for (int k = 0; k < grid_size[0]; ++k) {
-        for (int j = 0; j < grid_size[1]; ++j) {
-            for (int i = 0; i < grid_size[2]; ++i) {
-                int n = microenvironment.voxel_index(i, j, k);
-                
-                // If this voxel was marked as being on the boundary by our rasterizer
-                if ( initial_phi[n] == 0.0 ) {
-                    known_indices.push_back({i, j, k});
-                    known_distances.push_back(0.0);
-                }
-            }
-        }
-    }
-    
-    // This is a simplified seeding for the sign. A more robust method would check
-    // neighbors. We assume the origin is inside the duct.
-    // We check the sign of the center-most voxel relative to the shape's center.
-    int center_voxel_index = microenvironment.nearest_voxel_index({0,0,0});
-    // A simple test: if the center voxel is far from the boundary, it's inside.
-    if( initial_phi[center_voxel_index] > 0 ) {
-        // The sign needs to be flipped. Let's make inside negative.
-        for( int n=0; n < microenvironment.number_of_voxels(); n++ )
-        {
-            // A simple heuristic to define inside/outside based on rasterization
-            if( initial_phi[n] > 0 ) initial_phi[n] = -1.0; // Mark as inside
-            else initial_phi[n] = 1.0; // Mark as outside
-        }
-    } else {
-        // The sign is correct.
-        for( int n=0; n < microenvironment.number_of_voxels(); n++ )
-        {
-            if( initial_phi[n] > 0 ) initial_phi[n] = 1.0;
-            else initial_phi[n] = -1.0;
-        }
-    }
-    // Now, initial_phi has -1 for inside, +1 for outside, and 0 on boundary.
-    // The FMM library will use the signs of the known_distances to propagate.
-    // We can refine the known distances for better accuracy.
-    for( size_t i=0; i < known_indices.size() ; ++i )
-    {
-        int n = microenvironment.voxel_index(known_indices[i], known_indices[i][2], known_indices[i][1]);
-        // Check a neighbor to determine sign
-        int neighbor_idx = microenvironment.voxel_index(known_indices[i]+1, known_indices[i][2], known_indices[i][1]);
-        if( neighbor_idx >= 0 && neighbor_idx < initial_phi.size() && initial_phi[neighbor_idx] < 0)
-        {
-            // If neighbor is inside, this boundary point should propagate negative values inward
-            // But the library handles this based on the initial values. We can just provide 0.
-        }
-    }
-    // The library can handle positive and negative arrival times (distances).
-    // We provide the boundary points with distance 0. The library will compute
-    // distances, but we need to apply the sign afterwards.
-
-    // 4. --- Run the Fast Marching Method ---
-    // The library calculates unsigned distance. We will calculate it twice.
-    // Once for the inside, once for the outside.
-
-    // Run 1: Distance inside the duct (negative values)
-    std::vector<std::array<int, 3>> inside_seeds;
-    std::vector<double> inside_distances;
-    // Find boundary voxels with an inside neighbor
-    for (const auto& idx_array : known_indices) {
-        // Check neighbors of this boundary voxel
-        // (A full implementation would check all 6 neighbors)
-        int neighbor_i = idx_array + 1;
-        if (neighbor_i < grid_size) {
-            int neighbor_n = microenvironment.voxel_index(neighbor_i, idx_array[2], idx_array[1]);
-            if (initial_phi[neighbor_n] < 0) { // If neighbor is inside
-                inside_seeds.push_back(idx_array);
-                inside_distances.push_back(0.0);
-                break; // Move to next boundary voxel
-            }
-        }
-    }
-    auto inside_dist_field = fmm::ArrivalTime(grid_size, grid_spacing, inside_seeds, inside_distances, speed);
-
-    // Run 2: Distance outside the duct (positive values)
-    std::vector<std::array<int, 3>> outside_seeds;
-    std::vector<double> outside_distances;
-    // Find boundary voxels with an outside neighbor
-    for (const auto& idx_array : known_indices) {
-        int neighbor_i = idx_array + 1;
-        if (neighbor_i < grid_size) {
-            int neighbor_n = microenvironment.voxel_index(neighbor_i, idx_array[2], idx_array[1]);
-            if (initial_phi[neighbor_n] > 0) { // If neighbor is outside
-                outside_seeds.push_back(idx_array);
-                outside_distances.push_back(0.0);
-                break; 
-            }
-        }
-    }
-    auto outside_dist_field = fmm::ArrivalTime(grid_size, grid_spacing, outside_seeds, outside_distances, speed);
-
-    // 5. --- Combine and Assign to the Final SDF ---
-    for( int n=0; n < microenvironment.number_of_voxels(); n++ )
-    {
-        if( initial_phi[n] <= 0 ) // If inside or on the boundary
-        {
-            microenvironment.level_set_phi[n] = -inside_dist_field[n];
-        }
-        else // If outside
-        {
-            microenvironment.level_set_phi[n] = outside_dist_field[n];
-        }
-    }
-}

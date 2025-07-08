@@ -66,93 +66,49 @@
 */
 
 #include "./custom.h"
-#include <cfloat> 
 
+double distance_to_membrane( Cell* pCell, Phenotype& phenotype, double dt ){
 
+	double x = pCell->position[0];
+	double y = pCell->position[1];
+	// add 3D
 
-
-// Distance should just be the value of SDF at the voxel???
-double distance_to_membrane(Cell* pCell,
-                             Phenotype& phenotype,
-                             double dt)
-{
-    int voxel_index = pCell->get_current_voxel_index();
-
-	return microenvironment.level_set_phi[voxel_index];
-}
-
-// Helper function to compute the gradient (TODO: Verify if this is correct, I have doubts)
-
-std::vector<gradient> level_set_gradient(Cell* pCell,
-										 Phenotype& phenotype,
-										 double dt)
-{
-	int voxel_index = pCell->get_current_voxel_index();
-
-	return microenvironment.gradient_vector(voxel_index);
-}
-
-void basement_membrane_interaction(Cell* pCell,
-                                   Phenotype& phenotype,
-                                   double dt)
-{
-   // std:: cout << "basement_membrane_interaction called for cell " << pCell->ID << std::endl;
-	// std:: cout << "The custom code is working!!!!!"<< std::endl;
-	 double d = distance_to_membrane( pCell, phenotype, dt );
-	 double L = parameters.doubles("membrane_interaction_length"); 
+	// cell radius
+	double r = sqrt( x*x + y*y );
 	
-	// if we are not close enough, do nothing
-	 if (fabs(d) >= L){
-		return;
-	 }			
 
-	// Outward normal vec
-	std::vector<double> n = { pCell->position[0],
-								pCell->position[1],
-								0.0 };
-	normalize( &n );  
+	// logic might be backward here
+	return r - parameters.doubles("membrane_radius"); 
 
-	// Inside BM, push out. Outside BM, pull in.
-	double sign = ( d < 0.0 ? +1.0     
-							: -1.0 );  
-
-	double strength = parameters.doubles("membrane_adhesion_strength");
-	double mag = strength * (L - fabs(d));  
-
-	// Apply velocity update
-	for( int i=0; i<2; i++ )
-	{ pCell->velocity[i] += sign * mag * n[i]; }
 }
 
+void basement_membrane_interaction( Cell* pCell, Phenotype& phenotype, double dt ){
 
-void custom_rule( Cell* pCell, Phenotype& phenotype, double dt )
-{	
+	 double d = distance_to_membrane( pCell, phenotype, dt );
 
-	return; // This is a custom rule that can be used to implement any custom behavior for the cell, such a proliferation.
+	// interaction length 
+	 double L = parameters.doubles("membrane_interaction_length");                 // remove hardcoded, param "membrane_interaction_length"
+
+	 if (d < L){
+
+		// repulse: unit vector pointing away from the membrane
+		std::vector<double> dir = { pCell->position[0], pCell->position[1], 0.0 };
+        normalize( &dir );
+
+		// adhesion: unit vector pointing towards the membrane
+		// (negative of the repulsion direction)
+		// for( int i=0; i<2; i++ ){   
+		// 	dir[i] *= -1.0;  }
+
+		// force magnitude proportional to how deep we are
+        double strength = parameters.doubles("membrane_adhesion_strength");                         // param ""membrane_adhesion_strength""
+        double magnitude = strength * (L - fabs(d));
+
+        // push cell along dir 
+        for( int i=0; i<2; i++ )
+        {   pCell->velocity[i] -= ( d > 0 ? 1 : -1 ) * magnitude * dir[i];  }
+	 }
 }
-
-void initialize_level_set_duct( double radius, std::vector<double> center){
-
-	for (int n=0; n<microenvironment.number_of_voxels(); n++)
-	{
-		// Get the voxel position
-		std::vector<double> position = microenvironment.mesh.voxels[n].center;
-		
-		// Calculate the distance from the center
-		double distance = sqrt(pow(position[0] - center[0], 2) + 
-		                       pow(position[1] - center[1], 2) + 
-		                       pow(position[2] - center[2], 2));
-		
-		// Set the level set value based on the distance
-		microenvironment.level_set_phi[n] = distance - radius;
-		
-		// Set the boundary normal speed
-		microenvironment.level_set_boundary_normal_speed[n] = 0.0; // No movement for now
-	}
-
-	return;
-}
-
 
 void create_cell_types( void )
 {
@@ -179,9 +135,10 @@ void create_cell_types( void )
 	cell_defaults.functions.update_phenotype = NULL; // update_cell_and_death_parameters_O2_based; 
 	cell_defaults.functions.custom_cell_rule = NULL; 
 	cell_defaults.functions.contact_function = NULL; 
- 
 	
-	// std::cout << "Cell type defaults set. (Test)" << std::endl;
+	cell_defaults.functions.add_cell_basement_membrane_interactions = basement_membrane_interaction; 
+	cell_defaults.functions.calculate_distance_to_membrane = distance_to_membrane; 
+	
 	/*
 	   This parses the cell definitions in the XML config file. 
 	*/
@@ -192,9 +149,6 @@ void create_cell_types( void )
 	   This builds the map of cell definitions and summarizes the setup. 
 	*/
 		
-	cell_defaults.functions.add_cell_basement_membrane_interactions = basement_membrane_interaction; 
-	cell_defaults.functions.calculate_distance_to_membrane = distance_to_membrane; 
-
 	build_cell_definitions_maps(); 
 
 	/*
@@ -216,7 +170,7 @@ void create_cell_types( void )
 	*/ 
 	
 	cell_defaults.functions.update_phenotype = phenotype_function; 
-	cell_defaults.functions.custom_cell_rule = custom_rule; 
+	cell_defaults.functions.custom_cell_rule = custom_function; 
 	cell_defaults.functions.contact_function = contact_function; 
 	
 	/*
@@ -286,37 +240,7 @@ void setup_tissue( void )
 	// load cells from your CSV file (if enabled)
 	load_cells_from_pugixml();
 	set_parameters_from_distributions();
-
-	// Create new shape for the basement membrane
-	// int num_points = parameters.ints("membrane_num_points");
-	// double a = 350.0, b = 250.0;
-	// int n_pts = 200;
-	// double amp = 0.1;   // put in header later
-	// int lobes = 4;
-
-	// auto BM_pts = generate_boundary_shape(a, b, amp, lobes, num_points);
-	// Cell_Definition* pBM_def = cell_definitions_by_index[1];
-
-	// for (auto &pt : BM_pts){
-	// 	Cell* pBM = create_cell( *pBM_def );
-	// 	pBM->assign_position( pt );
-	// }
-
-	for (auto pCell : *all_cells){
-
-		// Stash the volume growth rates in custom data
-		pCell->custom_data["default_cyto_rate"] = pCell->phenotype.volume.cytoplasmic_biomass_change_rate;
-		pCell->custom_data["default_nuclear_rate"] = pCell->phenotype.volume.nuclear_biomass_change_rate;
-		pCell->custom_data["default_fluid_rate"] = pCell->phenotype.volume.fluid_change_rate;
-
-	}
 	
-	// Initialize the level set representation of the duct
-    double duct_radius = parameters.doubles("duct_radius"); // Example: get from XML
-    std::vector<double> duct_center = {0.0, 0.0, 0.0};
-    
-    initialize_level_set_duct( duct_radius, duct_center );
-
 	return; 
 }
 
