@@ -118,10 +118,10 @@ std::pair<double,double> level_set_normalize(const std::pair<double, double>& gr
 	}
 	return { normal[0], normal[1] };
 }
-/**
- * Advect the level‑set field φ by normal speed V over time dt.
- * Uses computeLevelSetGradient() to get spatial derivatives.
- */
+
+  // Advect the level‑set field phi by normal speed V over time dt.
+  // Incomplete need more testing
+ 
 void advect_level_set(
     std::vector<std::vector<double>>& phi,
     double V, 
@@ -129,7 +129,7 @@ void advect_level_set(
     double dx,
     double dy)
 {
-    int Nx = phi.size();
+    int Nx = phi.size();  // Nx is the dimension of the first index (x-direction)
     int Ny = phi[0].size();
 
     // Make a copy for the update
@@ -244,7 +244,7 @@ std::vector<std::vector<double>> generate_boundary_shape(double a, double b, dou
     return pts;
 }
 
-// Helper to test if point (x,y) is inside the polygon (ray-casting)
+// Helper to test if point (x,y) is inside the polygon 
 bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pts) {
 	// std::cout << "We are inside the is_inside function!!!" << std::endl;
 	// std::cout << "Checking if point (" << x << ", " << y << ") is inside the polygon." << std::endl;
@@ -252,16 +252,18 @@ bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pt
 	bool inside = false;
 	int Np = (int)BM_pts.size();
 
-	for(int k=0; k<Np; ++k) {
+	for(int k=0; k<Np; ++k) {                                         // Looping through each edge of the polygon
 
-		double x1 = BM_pts[k][0], y1 = BM_pts[k][1];
-		double x2 = BM_pts[(k+1)%Np][0], y2 = BM_pts[(k+1)%Np][1];
+		double x1 = BM_pts[k][0], y1 = BM_pts[k][1];           
+		double x2 = BM_pts[(k+1)%Np][0], y2 = BM_pts[(k+1)%Np][1];    // (x1,y1) and (x2,y2) are the endpoints of the edge
 
-		// Check if horizontal ray intersects segment
-		if(((y1 > y) != (y2 > y)) ) {
-			double xint = x1 + (y - y1)*(x2 - x1)/(y2 - y1);
+		// Check if horizontal ray intersects the edge between (x1,y1) and (x2,y2)
+		// 
+		if(((y1 > y) != (y2 > y)) ) {                                  //This should handle edges cases now
+
+			double xint = x1 + (y - y1)*(x2 - x1)/(y2 - y1);           // Note here xint is the x-coordinate of the intersection point of the horizontal ray with the edge
 			
-			if(x < xint) inside = !inside;
+			if(x < xint) inside = !inside;                             // Reverse logic: ray extends to the right
 		}
 	}
 return inside;
@@ -274,42 +276,49 @@ void initialize_level_set_duct(){
 	ls_xmin = mesh.bounding_box[0]; // bounding box is [xmin ymin zmin xmax ymax zmax]
 	ls_ymin = mesh.bounding_box[1];
 	ls_dx = mesh.dx;
-	ls_dy = mesh.dy;
+	ls_dy = mesh.dy;     // Uniform grid spacing in x and y directions
 
 	// Compute number of voxels
 	int Nx = (int)((mesh.bounding_box[3] - ls_xmin) / ls_dx);
 	int Ny = (int)((mesh.bounding_box[4] - ls_ymin) / ls_dy); // Might need +1 here to include bb
 
 	// Create SDF
-	level_set_phi.assign(Nx, std::vector<double>(Ny, 0.0));
+	level_set_phi.assign(Nx, std::vector<double>(Ny, 0.0)); // Nx x Ny matrix initialized to zero
 
 	// Get initial boundary points 
 	// Create new shape for the basement membrane
-	int num_points = parameters.ints("membrane_num_points");
-	double a = 350.0, b = 250.0;
-	int n_pts = 200;
-	double amp = 0.1;   // put in header later
-	int lobes = 4;
+	// Should probably put in header later
 
-	auto BM_pts = generate_boundary_shape(a, b, amp, lobes, num_points);
+	int num_points = parameters.ints("membrane_num_points");
+	double a = 350.0, b = 250.0;   // Length of ellipse axes
+	double amp = 0.1;              // Amplitude of deformation
+	int freq = 4;                 // Number of bumps
+
+	auto BM_pts = generate_boundary_shape(a, b, amp, freq, num_points);
 
 	// Precompute segments for convenience
 	// Segments are pairs of points representing the edges of the shape
+
 	int Np = (int)BM_pts.size();
-	std::vector<std::pair< std::array<double,3>, std::array<double,3> >> segments;
+
+	std::vector<std::pair< std::array<double,3>, std::array<double,3> >> segments;     // Segments are edges of the shape
+
 	for(int k=0; k<Np; ++k) {
 		auto p1_vec = BM_pts[k];
 		auto p2_vec = BM_pts[(k+1)%Np];
 		std::array<double,3> p1 = { p1_vec[0], p1_vec[1], p1_vec[2] };
-		std::array<double,3> p2 = { p2_vec[0], p2_vec[1], p2_vec[2] };
+		std::array<double,3> p2 = { p2_vec[0], p2_vec[1], p2_vec[2] }; // Check if should be array or vectors. For some reason need to be arrays not vectors (not sure why)
 		segments.push_back({p1, p2});
 }
 
 	// Compute signed distance for each grid point
+	// High level overview: This double for loop gets the x and y coordinates of each voxel
+	// Then computes the minimum distance to any segment (edge) of the shape
+
 	for(int i=0; i<Nx; i++){
 		for(int j=0; j<Ny; j++){
 
-			// Map voxel index to physical coordinate (cell-centered)
+			// Map voxel index to physical coordinate (half for cell center)
 			double x = ls_xmin + (i + 0.5)*ls_dx;
 			double y = ls_ymin + (j + 0.5)*ls_dy;
 
@@ -319,11 +328,12 @@ void initialize_level_set_duct(){
 				double x1 = seg.first[0], y1 = seg.first[1];
 				double x2 = seg.second[0], y2 = seg.second[1];
 
-				// Project point onto line segment
-				double vx = x2 - x1, vy = y2 - y1;
-				double wx = x - x1, wy = y - y1;
+				// Project point onto line segment (similar logic to is_inside)
+				double vx = x2 - x1, vy = y2 - y1;              // change from start and end of edge
+				double wx = x - x1, wy = y - y1;                // change from start of edge to voxel point (x,y)
 				double v2 = vx*vx + vy*vy;
-				double t = (v2>0 ? (wx*vx + wy*vy)/v2 : 0.0);
+				double t = (v2>0 ? (wx*vx + wy*vy)/v2 : 0.0);   // t is the projection factor along the edge
+
 				double dist;
 
 				if(t <= 0) {
