@@ -264,6 +264,8 @@ class Vis(VisBase, QWidget):
 
         # self.plot_w.setWidget(self.canvas) # self.config_params = QWidget()
 
+        self.boundary_line = None
+
     #--------------------------------------
     # def aspect_11_cb(self,bval):
     #     print("vis_tab: aspect_11_cb()  self.aspect_11_checkbox.isChecked()= ",self.aspect_11_checkbox.isChecked())
@@ -322,7 +324,40 @@ class Vis(VisBase, QWidget):
         # print("------ vis_tab.py: update_plots()")
         # for line in traceback.format_stack():
         #     print(line.strip())
+
         self.ax0.cla()
+
+        # TODO: load in my csv files for boundary
+        print("Adding duct boundary at frame: ",self.current_frame)
+
+        if self.boundary_line is not None:
+            print("Removing previous boundary points")
+            self.boundary_line.remove()
+            self.boundary_line = None
+
+        frame = self.current_frame
+        csv_name = os.path.join(self.output_dir, f"boundary_t{frame}.csv")
+
+        if os.path.isfile(csv_name):
+            print("Reading boundary from file: ", csv_name)
+            df = pandas.read_csv(csv_name, header=None, names=['x','y'])
+            xs = df['x'].values
+            ys = df['y'].values
+
+            # draw the boundary line, keep a reference so we can remove it next time
+            self.boundary_line, = self.ax0.plot(xs, ys, 'r-', linewidth=2, alpha=.5)
+            # close the loop (last point back to first)
+            self.ax0.plot(
+                [xs[-1], xs[0]],
+                [ys[-1], ys[0]],
+                'r-',
+                linewidth=2,
+                alpha=.5
+            )
+
+
+        #---------------------
+
         if self.substrates_checked_flag:  # do first so cells are plotted on top
             self.plot_substrate(self.current_frame)
         
