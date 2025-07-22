@@ -71,6 +71,7 @@
 #include <array>
 
 std::vector<std::vector<double>> boundary_membrane_pts;
+std::vector<double> initial_edge_length; 
 
 // Helper function to save boundary points to a CSV file
 void boundary_to_csv( std::vector<std::vector<double>> const& boundary_pts, 
@@ -94,7 +95,7 @@ void boundary_to_csv( std::vector<std::vector<double>> const& boundary_pts,
 	std::cout << "Boundary points saved to " << filename << " successfully" << std::endl;
 }
 
-// Helper function to compute the gradient (TODO: Verify if this is correct, I have doubts)
+// Helper function to compute the gradient (TODO: Verify if this is correct: Good)
 
 std::pair<double, double> level_set_gradient(int i, int j, 
 										 const std::vector<std::vector<double>>& phi,
@@ -142,52 +143,8 @@ std::pair<double,double> level_set_normalize(const std::pair<double, double>& gr
 	return { normal[0], normal[1] };
 }
 
-  // Advect the level‑set field phi by normal speed V over time dt.
-  // Incomplete need more testing
- 
-void advect_level_set(
-    std::vector<std::vector<double>>& phi,
-    double V, 
-    double dt,
-    double dx,
-    double dy)
-{
-    int Nx = phi.size();  // Nx is the dimension of the first index (x-direction)
-    int Ny = phi[0].size();
-
-    // Make a copy for the update
-    std::vector<std::vector<double>> phi_new = phi;
-
-    for(int i = 0; i < Nx; ++i) {
-        for(int j = 0; j < Ny; ++j) {
-            
-            auto grad = level_set_gradient(i, j,phi, dx, dy);
-            double grad_mag = std::sqrt(grad.first*grad.first 
-                                      + grad.second*grad.second);
-
-            // Upwind Euler step: 
-            phi_new[i][j] = phi[i][j] - dt * V * grad_mag;
-        }
-    }
-
-    phi.swap(phi_new);
-
-    // Optional: reinitialize to maintain signed‑distance property
-    // reinitialize_level_set(phi, dx, dy);
-}
-
-// TODO: Need to implement a reinitialization function to maintain the signed distance property of the level set function.
-
-
-// Functions above are needed for the level set method, and require further testing.
-//________________________________________________________________________________________________________________________________________
-//________________________________________________________________________________________________________________________________________
-// Functions below are not specific to the level set method, and should work without error.
-
 // Helper function for getting the voxel indices of a cell
-std::pair<double,double> voxel_indices(Cell* pCell,
-                             Phenotype& phenotype,
-                             double dt)
+std::pair<double,double> voxel_indices(Cell* pCell)
 
 {
 	int v = pCell->get_current_voxel_index();
@@ -206,12 +163,35 @@ std::pair<double,double> voxel_indices(Cell* pCell,
 	return {i, j};
 }
 
+std::pair<double,double> compute_cell_force(Cell* pCell)
+{
+	std::pair<int,int> indices = voxel_indices(pCell);
+    int i = indices.first;
+    int j = indices.second;
+    double d = level_set_phi[i][j];
+    double L = parameters.doubles("membrane_interaction_length"); // 500 now 
+    if(fabs(d) >= L) return {0.0, 0.0};
+
+	// Make this spring force
+
+    auto grad   = level_set_gradient( i, j,level_set_phi, ls_dx, ls_dy);
+    auto normal = level_set_normalize(grad);
+    double sign     = (d < 0.0 ? +1.0 : -1.0);
+    double strength = parameters.doubles("membrane_adhesion_strength"); //.001 right now
+    double mag      = strength * fabs(d);    // This is Hooke's law, F = kx
+
+    double Fx = sign * mag * normal.first;
+    double Fy = sign * mag * normal.second;
+
+	return { Fx, Fy };
+}
+
 // Distance should just be the value of SDF at the voxel???
 double distance_to_membrane(Cell* pCell,
                              Phenotype& phenotype,
                              double dt)
 {
-    std::pair<int,int> indices = voxel_indices(pCell, phenotype, dt);
+    std::pair<int,int> indices = voxel_indices(pCell);
     int i = indices.first;
     int j = indices.second;
 
@@ -222,7 +202,7 @@ void basement_membrane_interaction(Cell* pCell,
                                    Phenotype& phenotype,
                                    double dt)
 {
-    std::pair<int,int> indices = voxel_indices(pCell, phenotype, dt);
+    std::pair<int,int> indices = voxel_indices(pCell);
     int i = indices.first;
     int j = indices.second;
     double d = level_set_phi[i][j];
@@ -241,33 +221,10 @@ void basement_membrane_interaction(Cell* pCell,
     pCell->velocity[1] += sign * mag * normal.second;
 }
 
-
-void custom_rule( Cell* pCell, Phenotype& phenotype, double dt )
-{	
-
-	return; // This is a custom rule that can be used to implement any custom behavior for the cell, such a proliferation.
-}
-
-// Tested and works!
-std::vector<std::vector<double>> generate_boundary_shape(double a, double b, double amp, int freq, int num_points){
-
-	std::vector<std::vector<double>> pts;
-	pts.reserve(num_points);
-    
-	// Generating points for a deformed ellipse like shape
-    for (int i = 0; i < num_points; i++) {
-        
-        double theta = 2.0 * M_PI * i / (num_points - 1);
-        
-        double r_x = a * (1.0 + amp * cos(freq * theta));
-        double r_y = b * (1.0 + amp * sin(freq * theta));
-        double x = r_x * cos(theta);
-        double y = r_y * sin(theta);
-
-        pts.push_back({ x, y, 0.0 });
-    }
-    return pts;
-}
+// ________________________________________________________________________________________________________________________
+//_________________________________________________________________________________________________________________________
+// Functions for implementing deformations of basement membrane
+// ________________________________________________________________________________________________________________________
 
 // Helper to test if point (x,y) is inside the polygon 
 bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pts) {
@@ -293,6 +250,199 @@ bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pt
 	}
 return inside;
 };
+
+void rebuild_signed_distance_field()
+{
+	// std::cout << "Rebuilding signed distance field..." << std::endl;
+    // Mesh dimensions and spacing (already set in initialize_level_set_duct)
+    int Nx = (int) level_set_phi.size();
+    int Ny = (int) level_set_phi[0].size();
+
+    // Build segment list from the current boundary points
+    int Np = (int) boundary_membrane_pts.size();
+    std::vector<std::pair<std::array<double,3>,std::array<double,3>>> segments;
+    segments.reserve(Np);
+    for(int k = 0; k < Np; ++k)
+    {
+        auto &p1_vec = boundary_membrane_pts[k];
+        auto &p2_vec = boundary_membrane_pts[(k+1) % Np];
+        segments.push_back({
+            { p1_vec[0], p1_vec[1], p1_vec[2] },
+            { p2_vec[0], p2_vec[1], p2_vec[2] }
+        });
+    }
+
+    // For each grid cell, compute min distance to any segment
+    for(int i = 0; i < Nx; ++i)
+    {
+        double x = ls_xmin + (i + 0.5) * ls_dx;
+        for(int j = 0; j < Ny; ++j)
+        {
+            double y = ls_ymin + (j + 0.5) * ls_dy;
+
+            double minDist = DBL_MAX;
+            for(auto &seg : segments)
+            {
+                double x1 = seg.first[0], y1 = seg.first[1];
+                double x2 = seg.second[0], y2 = seg.second[1];
+
+                // projection factor t along segment
+                double vx = x2 - x1, vy = y2 - y1;
+                double wx = x  - x1, wy = y  - y1;
+                double v2 = vx*vx + vy*vy;
+                double t  = (v2 > 0 ? (wx*vx + wy*vy) / v2 : 0.0);
+
+                // clamp t to [0,1] and compute distance
+                double dist;
+                if (t <= 0.0)
+                {
+                    dist = sqrt(wx*wx + wy*wy);               // to p1
+                }
+                else if (t >= 1.0)
+                {
+                    double ux = x - x2, uy = y - y2;
+                    dist = sqrt(ux*ux + uy*uy);               // to p2
+                }
+                else
+                {
+                    double px = x1 + t * vx;
+                    double py = y1 + t * vy;
+                    double ux = x - px, uy = y - py;
+                    dist = sqrt(ux*ux + uy*uy);               // to projection
+                }
+                minDist = std::min(minDist, dist);
+            }
+
+            //Determine sign via is_inside() and write phi
+            bool inside = is_inside(x, y, boundary_membrane_pts);
+            level_set_phi[i][j] = inside ? -minDist : +minDist;
+        }
+    }
+}
+
+void update_basement_membrane_deformation(double dt){
+
+	// std::cout << "Updating basement membrane deformation..." << std::endl;
+
+	int Np = (int)boundary_membrane_pts.size();
+	std::vector<std::pair<double,double>> node_forces(Np,{0,0});
+
+	for (Cell* pCell : *all_cells){
+
+		double cell_x = pCell->position[0];
+		double cell_y = pCell->position[1];
+
+		std::pair <double,double> force = compute_cell_force(pCell);
+		double Fx_cell = force.first;
+		double Fy_cell = force.second;
+
+		double Fx_BM = -Fx_cell;
+		double Fy_BM = -Fy_cell;
+
+		double best_dist = DBL_MAX;
+		int best_k = 0;
+		double best_t = 0;
+
+		for (int k=0; k<Np; k++){
+			
+			// Endpoints for the segment from k to k+1
+			int j = (k+1) % Np; 
+			double x1 = boundary_membrane_pts[k][0], y1 = boundary_membrane_pts[k][1];
+			double x2 = boundary_membrane_pts[j][0], y2 = boundary_membrane_pts[j][1];
+
+			// Computing projection of cell vec onto the segment vec
+
+			double bx = x2 - x1, by = y2 - y1;                  // Vector b for segment
+			double cx = cell_x-x1, cy = cell_y-y1;              // Vector c from first endpoint to cell position
+			double b2 = bx*bx + by*by;
+			double t = (b2>0 ? (cx*bx + cy*by) / b2 : 0.0);     // Just the projection formula: c x b / |b|^2
+
+			double dist;
+			if (t <= 0.0) {
+				dist = sqrt(cx*cx + cy*cy); // Projection is before first point
+			} 
+
+			else if (t >= 1.0) {
+				dist = sqrt((cell_x-x2)*(cell_x-x2) + (cell_y-y2)*(cell_y-y2)); // After second point
+			} 
+			
+			else {
+				double px = x1 + t * bx, py = y1 + t * by; 
+				dist = sqrt((cell_x-px)*(cell_x-px) + (cell_y-py)*(cell_y-py)); // Between endpoints
+			}
+
+			if (dist < best_dist) {
+				best_dist = dist;
+				best_k = k;
+				best_t = t;
+			}
+		}
+
+		// Distribute the force to the closest segment
+		int n1 = best_k, n2 = (best_k+1) % Np;
+		double t_clamped = std::max(0.0, std::min(best_t, 1.0));
+		node_forces[n1].first += (1.0 - t_clamped) * Fx_BM;
+		node_forces[n1].second += (1.0 - t_clamped) * Fy_BM;
+		node_forces[n2].first += (      t_clamped) * Fx_BM;
+		node_forces[n2].second += (      t_clamped) * Fy_BM;
+
+	}
+
+	// Apply spring forces to the boundary points
+	double k_spring = parameters.doubles("membrane_spring_constant");
+	for(int i=0; i<Np; i++) {
+		int j = (i+1) % Np;
+		double dx = boundary_membrane_pts[j][0] - boundary_membrane_pts[i][0];
+		double dy = boundary_membrane_pts[j][1] - boundary_membrane_pts[i][1];
+		double length = sqrt(dx*dx + dy*dy);
+		double rest   = initial_edge_length[i];  
+
+		if (length == 0) continue;  // avoid divide-by-zero
+		double fspring = -k_spring * (length - rest);
+		double Fx = fspring * (dx/length);
+		double Fy = fspring * (dy/length);
+		node_forces[i].first +=  Fx;  node_forces[i].second +=  Fy;
+		node_forces[j].first += -Fx;  node_forces[j].second += -Fy;
+	}
+
+	for(int i=0; i<Np; i++) {
+    boundary_membrane_pts[i][0] += node_forces[i].first  * dt;
+    boundary_membrane_pts[i][1] += node_forces[i].second * dt;
+	}
+
+	// Rebuild the signed distance field after updating boundary points
+	rebuild_signed_distance_field();
+
+}
+
+
+// ________________________________________________________________________________________________________________________
+//_________________________________________________________________________________________________________________________
+// These are functions for intializing the level set function phi for the duct
+// ________________________________________________________________________________________________________________________
+
+
+// Tested and works!
+std::vector<std::vector<double>> generate_boundary_shape(double a, double b, double amp, int freq, int num_points){
+
+	std::vector<std::vector<double>> pts;
+	pts.reserve(num_points);
+    
+	// Generating points for a deformed ellipse like shape
+    for (int i = 0; i < num_points; i++) {
+        
+        double theta = 2.0 * M_PI * i / (num_points - 1);
+        
+        double r_x = a * (1.0 + amp * cos(freq * theta));
+        double r_y = b * (1.0 + amp * sin(freq * theta));
+        double x = r_x * cos(theta);
+        double y = r_y * sin(theta);
+
+        pts.push_back({ x, y, 0.0 });
+    }
+    return pts;
+}
+
 
 void initialize_level_set_duct(){
 	std::cout << "Initializing level set function for the duct..." << std::endl;
@@ -325,6 +475,14 @@ void initialize_level_set_duct(){
 	// Segments are pairs of points representing the edges of the shape
 
 	int Np = (int)boundary_membrane_pts.size();
+	initial_edge_length.resize(Np);
+	for(int k = 0; k < Np; ++k)
+	{
+		int j = (k + 1) % Np;  
+		double dx = boundary_membrane_pts[j][0] - boundary_membrane_pts[k][0];
+		double dy = boundary_membrane_pts[j][1] - boundary_membrane_pts[k][1];
+		initial_edge_length[k] = std::sqrt(dx*dx + dy*dy);
+	}
 
 	std::vector<std::pair< std::array<double,3>, std::array<double,3> >> segments;     // Segments are edges of the shape
 
@@ -335,8 +493,6 @@ void initialize_level_set_duct(){
 		std::array<double,3> p2 = { p2_vec[0], p2_vec[1], p2_vec[2] }; // Check if should be array or vectors. For some reason need to be arrays not vectors (not sure why)
 		segments.push_back({p1, p2});
 }
-
-	// Compute signed distance for each grid point
 	// High level overview: This double for loop gets the x and y coordinates of each voxel
 	// Then computes the minimum distance to any segment (edge) of the shape
 
@@ -357,7 +513,7 @@ void initialize_level_set_duct(){
 				double vx = x2 - x1, vy = y2 - y1;              // change from start and end of edge
 				double wx = x - x1, wy = y - y1;                // change from start of edge to voxel point (x,y)
 				double v2 = vx*vx + vy*vy;
-				double t = (v2>0 ? (wx*vx + wy*vy)/v2 : 0.0);   // t is the projection factor along the edge
+				double t = (v2>0 ? (wx*vx + wy*vy)/v2 : 0.0);   // this is just the projection formula: c x b / |b|^2
 
 				double dist;
 
@@ -367,7 +523,7 @@ void initialize_level_set_duct(){
 					double ux = x - x2, uy = y - y2;
 					dist = sqrt(ux*ux + uy*uy);
 				} else {
-					double px = x1 + t*vx, py = y1 + t*vy;
+					double px = x1 + t*vx, py = y1 + t*vy;      // TODO: At some point make this projection code a function
 					double ux = x - px, uy = y - py;
 					dist = sqrt(ux*ux + uy*uy);
 				}
@@ -382,6 +538,16 @@ void initialize_level_set_duct(){
 	std::cout << "Level set function initialized!!!" << std::endl;
 }
 
+// ________________________________________________________________________________________________________________________
+//_________________________________________________________________________________________________________________________
+// Main PhysiCell Functions
+// ________________________________________________________________________________________________________________________
+
+void custom_rule( Cell* pCell, Phenotype& phenotype, double dt )
+{	
+
+	return; // This is a custom rule that can be used to implement any custom behavior for the cell, such a proliferation.
+}
 
 void create_cell_types( void )
 {

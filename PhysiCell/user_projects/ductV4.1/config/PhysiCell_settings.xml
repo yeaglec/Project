@@ -386,10 +386,9 @@
 
     <user_parameters>
         <number_of_cells type="int" units="none" description="initial number of cells (for each cell type)">0</number_of_cells>
-        <membrane_radius type="double" units="micron" description="cell membrane radius">5</membrane_radius>
         <membrane_interaction_length type="double" units="micron" description="cell membrane interaction length">500</membrane_interaction_length>
         <membrane_adhesion_strength type="double" units="micron/min" description="cell membrane adhesions strength">0.01</membrane_adhesion_strength>
-        <saturation_neighbors type="double" units="none" description="saturation neighbors for proliferation">2</saturation_neighbors>
         <membrane_num_points type="int" units="none" description="number of points for the membrane shape">200</membrane_num_points>
+        <membrane_spring_constant type="double" units="micron/um" description="membrane spring constant">0.01</membrane_spring_constant>
     </user_parameters>
 </PhysiCell_settings>

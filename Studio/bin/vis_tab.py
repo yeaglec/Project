@@ -328,10 +328,10 @@ class Vis(VisBase, QWidget):
         self.ax0.cla()
 
         # TODO: load in my csv files for boundary
-        print("Adding duct boundary at frame: ",self.current_frame)
+        # print("Adding duct boundary at frame: ",self.current_frame)
 
         if self.boundary_line is not None:
-            print("Removing previous boundary points")
+            # print("Removing previous boundary points")
             self.boundary_line.remove()
             self.boundary_line = None
 
@@ -339,13 +339,14 @@ class Vis(VisBase, QWidget):
         csv_name = os.path.join(self.output_dir, f"boundary_t{frame}.csv")
 
         if os.path.isfile(csv_name):
-            print("Reading boundary from file: ", csv_name)
+            # print("Reading boundary from file: ", csv_name)
             df = pandas.read_csv(csv_name, header=None, names=['x','y'])
             xs = df['x'].values
             ys = df['y'].values
 
-            # draw the boundary line, keep a reference so we can remove it next time
+            # Draw the boundary line, keep a reference so we can remove it next time
             self.boundary_line, = self.ax0.plot(xs, ys, 'r-', linewidth=2, alpha=.5)
+
             # close the loop (last point back to first)
             self.ax0.plot(
                 [xs[-1], xs[0]],
