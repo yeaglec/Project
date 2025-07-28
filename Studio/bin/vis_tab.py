@@ -345,14 +345,14 @@ class Vis(VisBase, QWidget):
             ys = df['y'].values
 
             # Draw the boundary line, keep a reference so we can remove it next time
-            self.boundary_line, = self.ax0.plot(xs, ys, 'r-', linewidth=2, alpha=.5)
+            self.boundary_line, = self.ax0.plot(xs, ys, 'r-', linewidth=1, alpha=.5)
 
             # close the loop (last point back to first)
             self.ax0.plot(
                 [xs[-1], xs[0]],
                 [ys[-1], ys[0]],
                 'r-',
-                linewidth=2,
+                linewidth=1,
                 alpha=.5
             )
 
