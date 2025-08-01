@@ -138,11 +138,11 @@
                     <relative_rupture_volume units="dimensionless">2.0</relative_rupture_volume>
                 </volume>
                 <mechanics>
-                    <cell_cell_adhesion_strength units="micron/min">0</cell_cell_adhesion_strength>
-                    <cell_cell_repulsion_strength units="micron/min">0</cell_cell_repulsion_strength>
+                    <cell_cell_adhesion_strength units="micron/min">0.4</cell_cell_adhesion_strength>
+                    <cell_cell_repulsion_strength units="micron/min">10.0</cell_cell_repulsion_strength>
                     <relative_maximum_adhesion_distance units="dimensionless">1.25</relative_maximum_adhesion_distance>
                     <cell_adhesion_affinities>
-                        <cell_adhesion_affinity name="Epithelial">1</cell_adhesion_affinity>
+                        <cell_adhesion_affinity name="Epithelial">1.0</cell_adhesion_affinity>
                         <cell_adhesion_affinity name="BM">1.0</cell_adhesion_affinity>
                     </cell_adhesion_affinities>
                     <options>
@@ -150,7 +150,7 @@
                         <set_absolute_equilibrium_distance enabled="false" units="micron">15.12</set_absolute_equilibrium_distance>
                     </options>
                     <attachment_elastic_constant units="1/min">0.01</attachment_elastic_constant>
-                    <attachment_rate units="1/min">0</attachment_rate>
+                    <attachment_rate units="1/min">0.01</attachment_rate>
                     <detachment_rate units="1/min">0.0</detachment_rate>
                     <maximum_number_of_attachments>2</maximum_number_of_attachments>
                 </mechanics>
@@ -368,8 +368,8 @@
     </cell_definitions>
 
     <initial_conditions>
-        <cell_positions type="csv" enabled="true">
-            <folder>./../PhysiCell/user_projects/ductV4.3/config</folder>
+        <cell_positions type="csv" enabled="false">
+            <folder>./../PhysiCell/user_projects/Duct_Dev/config</folder>
             <filename>cells.csv</filename>
         </cell_positions>
     </initial_conditions>
@@ -386,12 +386,16 @@
 
     <user_parameters>
         <number_of_cells type="int" units="none" description="initial number of cells (for each cell type)">0</number_of_cells>
-        <membrane_interaction_length type="double" units="micron" description="cell membrane interaction length">200</membrane_interaction_length>
+        <membrane_interaction_length type="double" units="micron" description="cell membrane interaction length">500</membrane_interaction_length>
         <membrane_adhesion_strength type="double" units="micron/min" description="cell membrane adhesions strength">0.01</membrane_adhesion_strength>
-        <membrane_num_points type="int" units="none" description="number of points for the membrane shape">2</membrane_num_points>
         <membrane_spring_constant type="double" units="micron/um" description="membrane spring constant">0.01</membrane_spring_constant>
-        <number_EP_cells type="int" units="none" description="number of epithelial cells">1</number_EP_cells>
+        <membrane_num_points type="int" units="none" description="number of points for the membrane shape">200</membrane_num_points>
+        <number_EP_cells type="int" units="none" description="number of epithelial cells">50</number_EP_cells>
         <x type="double" units="micron" description="x position of the first epithelial cell">-150</x>
         <y type="double" units="micron" description="y position of the first epithelial cell">150</y>
+        <ep_displacement type="double" units="micron" description="epithelial cell displacement">35</ep_displacement>
+        <membrane_deadzone type="double" units="micron/min" description="deadzone for the membrane spring force">7.5</membrane_deadzone>
+        <cell_deadzone type="double" units="micron/min" description="deadzone for the cell spring force">7.5</cell_deadzone>
+        <deformation_time_step type="double" units="min" description="time step for the basement membrane deformation">0</deformation_time_step>
     </user_parameters>
 </PhysiCell_settings>

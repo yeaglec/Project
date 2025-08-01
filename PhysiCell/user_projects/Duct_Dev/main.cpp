@@ -175,6 +175,8 @@ int main( int argc, char* argv[] )
 	}
 	
 	// main loop 
+	double bm_interval = parameters.doubles("deformation_time_step");
+	double next_bm_update = bm_interval; 
 	
 	try 
 	{		
@@ -227,7 +229,11 @@ int main( int argc, char* argv[] )
 			  Custom add-ons could potentially go here. 
 			*/
 			// update the basement membrane deformation
-			update_basement_membrane_deformation(diffusion_dt);
+			if( PhysiCell_globals.current_time > next_bm_update - 0.5*diffusion_dt )
+				{
+					update_basement_membrane_deformation(diffusion_dt);
+					next_bm_update += bm_interval;
+				}
 			
 			PhysiCell_globals.current_time += diffusion_dt;
 		}

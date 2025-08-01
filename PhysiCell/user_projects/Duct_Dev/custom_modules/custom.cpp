@@ -175,14 +175,18 @@ std::pair<double,double> compute_cell_force(Cell* pCell)         // TODO: Implem
     int j = indices.second;
 
     double d = level_set_phi[i][j];
-	std::cout << "Distance to membrane: " << d << std::endl;
+	// std::cout << "Distance to membrane: " << d << std::endl;
 	double R = pCell->phenotype.geometry.radius;
-	std::cout << "Cell radius: " << R << std:: endl;
+	// std::cout << "Cell radius: " << R << std:: endl;
 	double de = d - (d < 0 ? -R : R);                                    // de is the offseted distance to the BM
-	std::cout << "Effective distance to membrane: " << de << std::endl;
+	// std::cout << "Effective distance to membrane: " << de << std::endl;
 
     double L = parameters.doubles("membrane_interaction_length");        // 500 now 
-	double strength = parameters.doubles("membrane_adhesion_strength");  //.001 right now
+	double strength = parameters.doubles("membrane_spring_constant");  //.001 right now
+
+	double BM_deadzone = parameters.doubles("membrane_deadzone");
+
+	if (fabs(de) <BM_deadzone) return {0.0, 0.0}; 
 
     auto grad   = level_set_gradient( i, j,level_set_phi, ls_dx, ls_dy);
     auto normal = level_set_normalize(grad);
@@ -228,6 +232,10 @@ void basement_membrane_interaction(Cell* pCell,
 	double de = d - (d < 0 ? -R : R);
 
     if(fabs(de) >= L) return;
+
+	double cell_deadzone = parameters.doubles("cell_deadzone");
+	
+	if (fabs(de) <cell_deadzone) return;
 
 	// Make this spring force
 
@@ -729,25 +737,62 @@ void setup_tissue( void )
 	// 	n_BM_cells++;
 	// }
 
+	// Generating points for a deformed ellipse like shape
+	int num_ep = parameters.ints("number_EP_cells");
 	double a = 300.0, b = 250.0;
-	std::vector<double> cm = { 0, 0, 0 };   // center of ellipse
+	double amp = 0.1;              // Amplitude of deformation
+	int freq = 4;  
 	Cell_Definition* pBM_def = cell_definitions_by_index[0];
-	for( int k=1; k<parameters.ints("number_EP_cells")+1; k++ )
-	{
-		double theta = 2.0 * M_PI * k / parameters.ints("number_EP_cells");
-		// place daughters just *inside* the SDF: r = (a - gamma)
-		double gamma = 30.0;                           
-		double x = (a - gamma) * cos(theta);
-		double y = (b - gamma) * sin(theta);
-		Cell* pC = create_cell( *pBM_def );
+	double ep_dis = parameters.doubles("ep_displacement");
 
+    for (int i = 0; i < num_ep; i++) {
+        
+        double theta = 2.0 * M_PI * i / (num_ep);
+        
+        double r_x = a * (1.0 + amp * cos(freq * theta));
+        double r_y = b * (1.0 + amp * sin(freq * theta));
+        double x = r_x * cos(theta);
+        double y = r_y * sin(theta);
+
+		// compute radial distance and unit‐radial direction
+		double r_norm = std::sqrt(x*x + y*y);
+		double nx = x / r_norm;    // outward radial unit vector
+		double ny = y / r_norm;
+
+		// step back along the normal by ep_dis
+		double xi = x - ep_dis * nx;
+		double yi = y - ep_dis * ny;
+
+		Cell* pC = create_cell( *pBM_def );
 		if( parameters.ints("number_EP_cells") > 1 ){
-			pC->assign_position( { x, y, 0.0 } );
+			pC->assign_position( { xi, yi, 0.0 } );
 		}
 		else{
 			pC->assign_position( { parameters.doubles("x"), parameters.doubles("y"), 0.0 } );
 		}
+	
+
 	}
+
+	
+	// std::vector<double> cm = { 0, 0, 0 };   // center of ellipse
+	
+	// for( int k=1; k<parameters.ints("number_EP_cells")+1; k++ )
+	// {
+	// 	double theta = 2.0 * M_PI * k / parameters.ints("number_EP_cells");
+	// 	// place daughters just *inside* the SDF: r = (a - gamma)
+	// 	double gamma = 30.0;                           
+	// 	double x = (a - gamma) * cos(theta);
+	// 	double y = (b - gamma) * sin(theta);
+	// 	Cell* pC = create_cell( *pBM_def );
+
+	// 	if( parameters.ints("number_EP_cells") > 1 ){
+	// 		pC->assign_position( { x, y, 0.0 } );
+	// 	}
+	// 	else{
+	// 		pC->assign_position( { parameters.doubles("x"), parameters.doubles("y"), 0.0 } );
+	// 	}
+	// }
 
 	//_______________________________________________________________________________________________________________________
 
