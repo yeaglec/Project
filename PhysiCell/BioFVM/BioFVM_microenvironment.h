@@ -146,10 +146,6 @@ class Microenvironment
 	// diffusing entities 
 	std::vector< std::string > density_names; 
 	std::vector< std::string > density_units; 
-
-	// Level Set Modifications
-	std::vector<double> level_set_phi;
-	std::vector<double> level_set_boundary_normal_speed;
  
 	// coefficients 
 	std::vector< double > diffusion_coefficients; 

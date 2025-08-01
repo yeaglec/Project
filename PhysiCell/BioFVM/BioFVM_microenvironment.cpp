@@ -327,22 +327,7 @@ void Microenvironment::resize_voxels( int new_number_of_voxes )
 	dirichlet_value_vectors.assign( mesh.voxels.size(), one ); 
 
 	dirichlet_activation_vectors.assign( mesh.voxels.size() , dirichlet_activation_vector ); 
-
-	//_______________________
-	// Cam Level Set Modifications (TODO: try to move to custom.cpp later)
-	try{ 
-
-		level_set_phi.resize(new_number_of_voxes, 0.0);
-		level_set_boundary_normal_speed.resize(new_number_of_voxes, 0.0);	
-	}
-
-	catch( const std::bad_alloc& e )
-	{
-		std::cout << "FATAL ERROR: Could not allocate memory for level set fields." << std::endl; 
-        exit(-1);
-	}
 	
-	// End of Cam's Stuff
 	return; 
 }
 

@@ -42,7 +42,7 @@
             <enable>true</enable>
         </full_data>
         <SVG>
-            <interval units="min">60</interval>
+            <interval units="min">10</interval>
             <enable>true</enable>
             <plot_substrate enabled="false" limits="false">
                 <substrate>virus</substrate>
@@ -118,10 +118,6 @@
                         <rate start_index="2" end_index="3" fixed_duration="true">0.00416667</rate>
                         <rate start_index="3" end_index="0" fixed_duration="true">0.0166667</rate>
                     </phase_transition_rates>
-                    <standard_asymmetric_division enabled="False">
-                        <asymmetric_division_probability name="epithelial cell" units="dimensionless">1.0</asymmetric_division_probability>
-                        <asymmetric_division_probability name="macrophage" units="dimensionless">0</asymmetric_division_probability>
-                    </standard_asymmetric_division>
                 </cycle>
                 <death>
                     <model code="100" name="apoptosis">
@@ -225,26 +221,22 @@
                     <live_phagocytosis_rates>
                         <phagocytosis_rate name="epithelial cell" units="1/min">0.0</phagocytosis_rate>
                         <phagocytosis_rate name="macrophage" units="1/min">0.0</phagocytosis_rate>
-                        <phagocytosis_rate name="Epithelial" units="1/min">0.0</phagocytosis_rate>
                     </live_phagocytosis_rates>
                     <attack_rates>
                         <attack_rate name="epithelial cell" units="1/min">0.0</attack_rate>
                         <attack_rate name="macrophage" units="1/min">0.0</attack_rate>
-                        <attack_rate name="Epithelial" units="1/min">0.0</attack_rate>
                     </attack_rates>
                     <attack_damage_rate units="1/min">1.0</attack_damage_rate>
                     <attack_duration units="min">0.1</attack_duration>
                     <fusion_rates>
                         <fusion_rate name="epithelial cell" units="1/min">0.0</fusion_rate>
                         <fusion_rate name="macrophage" units="1/min">0.0</fusion_rate>
-                        <fusion_rate name="Epithelial" units="1/min">0.0</fusion_rate>
                     </fusion_rates>
                 </cell_interactions>
                 <cell_transformations>
                     <transformation_rates>
                         <transformation_rate name="epithelial cell" units="1/min">0.0</transformation_rate>
                         <transformation_rate name="macrophage" units="1/min">0.0</transformation_rate>
-                        <transformation_rate name="Epithelial" units="1/min">0.0</transformation_rate>
                     </transformation_rates>
                 </cell_transformations>
                 <cell_integrity>
@@ -273,10 +265,6 @@
                         <rate start_index="2" end_index="3" fixed_duration="true">0.00416667</rate>
                         <rate start_index="3" end_index="0" fixed_duration="true">0.0166667</rate>
                     </phase_transition_rates>
-                    <standard_asymmetric_division enabled="False">
-                        <asymmetric_division_probability name="epithelial cell" units="dimensionless">0</asymmetric_division_probability>
-                        <asymmetric_division_probability name="macrophage" units="dimensionless">1.0</asymmetric_division_probability>
-                    </standard_asymmetric_division>
                 </cycle>
                 <death>
                     <model code="100" name="apoptosis">
@@ -418,7 +406,7 @@
     </cell_definitions>
 
     <initial_conditions>
-        <cell_positions type="csv" enabled="true">
+        <cell_positions type="csv" enabled="false">
             <folder>./config</folder>
             <filename>cells.csv</filename>
         </cell_positions>

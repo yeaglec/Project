@@ -144,15 +144,15 @@ class Vis(QWidget):
         self.back0_button.clicked.connect(self.back0_plot_cb)
         controls_hbox.addWidget(self.back0_button)
 
-        self.back_button = QPushButton("??")
+        self.back_button = QPushButton("<")
         self.back_button.clicked.connect(self.back_plot_cb)
         controls_hbox.addWidget(self.back_button)
 
-        self.forward_button = QPushButton("::")
+        self.forward_button = QPushButton(">")
         self.forward_button.clicked.connect(self.forward_plot_cb)
         controls_hbox.addWidget(self.forward_button)
 
-        self.play_button = QPushButton("Plaq")
+        self.play_button = QPushButton("Play")
         # self.play_button.clicked.connect(self.play_plot_cb)
         self.play_button.clicked.connect(self.animate)
         controls_hbox.addWidget(self.play_button)
