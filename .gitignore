@@ -1,0 +1,4 @@
+# Leading slash means the path is relative to the repository root
+# The final slash indicates a directory
+
+/Project/PhysiCell/user_projects/Duct_LSM/
