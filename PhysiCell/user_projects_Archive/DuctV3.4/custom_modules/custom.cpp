@@ -619,19 +619,6 @@ std::vector<std::vector<double>> generate_boundary_shape(double a, double b, dou
     return pts;
 }
 
-std::vector<std::vector<double>> generate_circle_boundary(double radius, int num_points){
-
-	std::vector<std::vector<double>> pts;
-	pts.reserve(num_points);
-
-	for (int i = 0; i < num_points; i++) {
-		double theta = 2.0 * M_PI * i / num_points;
-		double x = radius * cos(theta);
-		double y = radius * sin(theta);
-		pts.push_back({ x, y, 0.0 });
-	}
-	return pts;
-}
 
 void initialize_level_set_duct(){
 	std::cout << "Initializing level set function for the duct..." << std::endl;
@@ -656,10 +643,7 @@ void initialize_level_set_duct(){
 	double amp = 0.1;              // Amplitude of deformation
 	int freq = 4;                 // Number of bumps
 
-	// boundary_membrane_pts = generate_boundary_shape(a, b, amp, freq, num_points);
-
-	double circle_radius = parameters.doubles("membrane_circle_radius");
-	boundary_membrane_pts = generate_circle_boundary(circle_radius, num_points);
+	boundary_membrane_pts = generate_boundary_shape(a, b, amp, freq, num_points);
 
 	// Precompute segments for convenience
 	// Segments are pairs of points representing the edges of the shape
@@ -728,124 +712,6 @@ void initialize_level_set_duct(){
 	std::cout << "Level set function initialized!!!" << std::endl;
 }
 
-// Cameron Code for division parallel to segments
-void parallel_cell_division( Cell* parent, Cell* child ){
-
-	std::cout << "Testing Parallel Cell Division Hookup" << std::endl;
-
-	double cell_x = parent->position[0];
-	double cell_y = parent->position[1];
-
-	int Np = boundary_membrane_pts.size();
-	double best_dist = DBL_MAX;
-	int best_k = 0;
-	double best_t = 0.0;
-	double best_px = 0.0, best_py = 0.0;
-
-	for (int k = 0; k < Np; k++) {
-
-		// Endpoints for the segment from k to k+1
-		int j = (k+1) % Np;
-		double x1 = boundary_membrane_pts[k][0], y1 = boundary_membrane_pts[k][1];
-		double x2 = boundary_membrane_pts[j][0], y2 = boundary_membrane_pts[j][1];
-
-		// Computing projection of vector c onto vector b
-
-		double bx = x2 - x1, by = y2 - y1;                     // Vector b for segment
-		double cx = cell_x - x1, cy = cell_y - y1;             // Vector c from first endpoint to cell position
-		double b2 = bx*bx + by*by;
-		double t = (b2 > 0.0 ? (cx*bx + cy*by) / b2 : 0.0);    // Just the projection formula: c \cdot b / |b|^2
-
-		double dist;
-		double px, py;   // Our projection
-
-		if (t <= 0.0) {
-			// before first endpoint
-			dist = sqrt(cx*cx + cy*cy);
-			px = x1; py = y1;
-		} else if (t >= 1.0) {
-			// after second endpoint
-			double ux = cell_x - x2, uy = cell_y - y2;
-			dist = sqrt(ux*ux + uy*uy);
-			px = x2; py = y2;
-		} else {
-			// projection between endpoints
-			px = x1 + t * bx;
-			py = y1 + t * by;
-			double ux = cell_x - px, uy = cell_y - py;
-			dist = sqrt(ux*ux + uy*uy);
-		}
-
-		if (dist < best_dist) {
-			best_dist = dist;
-			best_k = k;
-			best_t = t;
-			best_px = px;
-			best_py = py;
-		}
-	} 
-
-	// Build tangent from best segment
-	int k = best_k;
-	int kp = (k + 1) % Np;
-
-	double tx = boundary_membrane_pts[kp][0] - boundary_membrane_pts[k][0];
-    double ty = boundary_membrane_pts[kp][1] - boundary_membrane_pts[k][1];
-    double tz = 0.0;
-
-    double len = sqrt(tx*tx + ty*ty);
-    tx /= len; ty /= len; 
-
-	std::vector<double> &orient = parent->state.orientation;
-	double polarity = parent -> phenotype.geometry.polarity;
-
-	double dot = (tx * orient[0] + ty * orient[1] + tz * orient[2]); 
-	tx -= polarity * dot * orient[0];
-	ty -= polarity * dot * orient[1];
-	tz -= polarity * dot * orient[2];
-
-	// normalize again
-	double norm = sqrt(tx*tx + ty*ty + tz*tz);
-	if (norm > 0.0) {
-		tx /= norm; ty /= norm; tz /= norm;
-	}
-
-	double radius = parent->phenotype.geometry.radius;
-	double dx = radius * tx;
-	double dy = radius * ty;
-	double dz = radius * tz;
-
-	// The core code is inconveniently positioning the parent and child cell using rand_vec
-	// We gotta reconstruct the random vector to update the positions using our tangent vector
-	// Core code does: child_pos = parent_pos + rand_vec
-	// parent_pos = parent_final - 0.5 * rand_orig
-	// Ahh, we can just do some algreba and get back rand_vec
-
-	std::array<double,3> parent_final = { parent->position[0], parent->position[1], parent->position[2] };
-    std::array<double,3> child_final  = { child->position[0],  child->position[1],  child->position[2] };
-
-	// Recover rand_vec
-    std::array<double,3> rand_orig;
-    rand_orig[0] = (child_final[0] - parent_final[0]) / 1.5;  // rand_vec = (child_final - parent_final) / 1.5
-    rand_orig[1] = (child_final[1] - parent_final[1]) / 1.5;
-    rand_orig[2] = (child_final[2] - parent_final[2]) / 1.5;
-
-	// Recover parent_orig
-    std::array<double,3> parent_orig;
-    parent_orig[0] = parent_final[0] + 0.5 * rand_orig[0];
-    parent_orig[1] = parent_final[1] + 0.5 * rand_orig[1];
-    parent_orig[2] = parent_final[2] + 0.5 * rand_orig[2];
-
-    // New positions: child_new = parent_orig + d_des ; parent_new = parent_orig - 0.5*d_des
-    std::array<double,3> child_new = { parent_orig[0] + dx, parent_orig[1] + dy, parent_orig[2] + dz };
-    std::array<double,3> parent_new = { parent_orig[0] - 0.5*dx, parent_orig[1] - 0.5*dy, parent_orig[2] - 0.5*dz };
-
-    child->assign_position( child_new[0], child_new[1], child_new[2] );
-    parent->assign_position( parent_new[0], parent_new[1], parent_new[2] );
-
-	std::cout << "Parallel cell division completed!!!!!!" << std::endl;
-};
-
 // ________________________________________________________________________________________________________________________
 //_________________________________________________________________________________________________________________________
 // Main PhysiCell Functions
@@ -870,7 +736,6 @@ void create_cell_types( void )
 	   want to have "inherited" by other cell types. 
 	   
 	   This is a good place to set default functions. 
-
 	*/ 
 	
 	initialize_default_cell_definition(); 
@@ -922,14 +787,7 @@ void create_cell_types( void )
 	cell_defaults.functions.update_phenotype = phenotype_function; 
 	cell_defaults.functions.custom_cell_rule = custom_rule; 
 	cell_defaults.functions.contact_function = contact_function; 
-
-	// Adding function for parallel division
-	Cell_Definition* pCD = cell_definitions_by_name["Epithelial"];
-	if (pCD)
-	{	
-		cell_defaults.functions.cell_division_function = parallel_cell_division;
-	}
-
+	
 	/*
 	   This builds the map of cell definitions and summarizes the setup. 
 	*/
@@ -1021,69 +879,21 @@ void setup_tissue( void )
 	// }
 
 	// Generating points for a deformed ellipse like shape
-	// int num_ep = parameters.ints("number_EP_cells");
-	// double a = 300.0, b = 250.0;
-	// double amp = 0.1;              // Amplitude of deformation
-	// int freq = 4;  
-	// Cell_Definition* pBM_def = cell_definitions_by_index[0];
-	// double ep_dis = parameters.doubles("ep_displacement");
-
-    // for (int i = 0; i < num_ep; i++) {
-        
-    //     double theta = 2.0 * M_PI * i / (num_ep);
-        
-    //     double r_x = a * (1.0 + amp * cos(freq * theta));
-    //     double r_y = b * (1.0 + amp * sin(freq * theta));
-    //     double x = r_x * cos(theta);
-    //     double y = r_y * sin(theta);
-
-	// 	// compute radial distance and unit‐radial direction
-	// 	double r_norm = std::sqrt(x*x + y*y);
-	// 	double nx = x / r_norm;    // outward radial unit vector
-	// 	double ny = y / r_norm;
-
-	// 	// step back along the normal by ep_dis
-	// 	double xi = x - ep_dis * nx;
-	// 	double yi = y - ep_dis * ny;
-
-	// 	Cell* pC = create_cell( *pBM_def );
-	// 	if( parameters.ints("number_EP_cells") > 1 ){
-	// 		pC->assign_position( { xi, yi, 0.0 } );
-	// 	}
-	// 	else{
-	// 		pC->assign_position( { parameters.doubles("x"), parameters.doubles("y"), 0.0 } );
-	// 	}
-		
-	// }
-
-	// int cluster_cell_count = parameters.ints("cluster_cell_count"); 
-    // double cluster_center_x = parameters.doubles("cluster_center_x"); // Example: get from XML
-    // double cluster_center_y = parameters.doubles("cluster_center_y"); // Example: get from XML
-    // double cluster_radius = parameters.doubles("cluster_radius"); // Example: get from XML
-
-    // for (int j = 0; j < cluster_cell_count; j++) {
-    //     // Place cells randomly within a disc for a more real look
-    //     double r = cluster_radius * sqrt(UniformRandom()); // sqrt for uniform area distribution
-    //     double theta = 2.0 * M_PI * UniformRandom();
-        
-    //     double cx = cluster_center_x + r * cos(theta);
-    //     double cy = cluster_center_y + r * sin(theta);
-        
-    //     Cell* pC2 = create_cell(*pBM_def);
-    //     pC2->assign_position({cx, cy, 0.0});
-    // }
-
-	// Trying to make a cirlce
-
 	int num_ep = parameters.ints("number_EP_cells");
+	double a = 300.0, b = 250.0;
+	double amp = 0.1;              // Amplitude of deformation
+	int freq = 4;  
 	Cell_Definition* pBM_def = cell_definitions_by_index[0];
 	double ep_dis = parameters.doubles("ep_displacement");
 
-	for (int i=0; i<num_ep; i++) {
-		double theta = 2.0 * M_PI * i / num_ep;
-		double radius = parameters.doubles("membrane_circle_radius");
-		double x = radius * cos(theta);
-		double y = radius * sin(theta);
+    for (int i = 0; i < num_ep; i++) {
+        
+        double theta = 2.0 * M_PI * i / (num_ep);
+        
+        double r_x = a * (1.0 + amp * cos(freq * theta));
+        double r_y = b * (1.0 + amp * sin(freq * theta));
+        double x = r_x * cos(theta);
+        double y = r_y * sin(theta);
 
 		// compute radial distance and unit‐radial direction
 		double r_norm = std::sqrt(x*x + y*y);
@@ -1095,9 +905,6 @@ void setup_tissue( void )
 		double yi = y - ep_dis * ny;
 
 		Cell* pC = create_cell( *pBM_def );
-
-		// Turn on proliferation for first cell
-
 		if( parameters.ints("number_EP_cells") > 1 ){
 			pC->assign_position( { xi, yi, 0.0 } );
 		}
@@ -1105,12 +912,25 @@ void setup_tissue( void )
 			pC->assign_position( { parameters.doubles("x"), parameters.doubles("y"), 0.0 } );
 		}
 		
-		if (i==0){
-			std::cout << "Setting first cell to proliferate" << std::endl;
-			pC->phenotype.cycle.data.exit_rate(0) = parameters.doubles("proliferation_exit_rate");
-		}
-		
 	}
+
+	int cluster_cell_count = parameters.ints("cluster_cell_count"); 
+    double cluster_center_x = parameters.doubles("cluster_center_x"); // Example: get from XML
+    double cluster_center_y = parameters.doubles("cluster_center_y"); // Example: get from XML
+    double cluster_radius = parameters.doubles("cluster_radius"); // Example: get from XML
+
+    for (int j = 0; j < cluster_cell_count; j++) {
+        // Place cells randomly within a disc for a more real look
+        double r = cluster_radius * sqrt(UniformRandom()); // sqrt for uniform area distribution
+        double theta = 2.0 * M_PI * UniformRandom();
+        
+        double cx = cluster_center_x + r * cos(theta);
+        double cy = cluster_center_y + r * sin(theta);
+        
+        Cell* pC2 = create_cell(*pBM_def);
+        pC2->assign_position({cx, cy, 0.0});
+    }
+
 
 	
 	// std::vector<double> cm = { 0, 0, 0 };   // center of ellipse
