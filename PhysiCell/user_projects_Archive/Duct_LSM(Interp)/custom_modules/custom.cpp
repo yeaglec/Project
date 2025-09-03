@@ -168,125 +168,6 @@ std::pair<double,double> voxel_indices(Cell* pCell)
 	return {i, j};
 }
 
-// Helper to test if point (x,y) is inside the polygon 
-bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pts) {
-	// std::cout << "We are inside the is_inside function!!!" << std::endl;
-	// std::cout << "Checking if point (" << x << ", " << y << ") is inside the polygon." << std::endl;
-	
-	bool inside = false;
-	int Np = (int)BM_pts.size();
-
-	for(int k=0; k<Np; ++k) {                                         // Looping through each edge of the polygon
-
-		double x1 = BM_pts[k][0], y1 = BM_pts[k][1];           
-		double x2 = BM_pts[(k+1)%Np][0], y2 = BM_pts[(k+1)%Np][1];    // (x1,y1) and (x2,y2) are the endpoints of the edge
-
-		// Check if horizontal ray intersects the edge between (x1,y1) and (x2,y2)
-		// 
-		if(((y1 > y) != (y2 > y)) ) {                                  //This should handle edges cases now
-
-			double xint = x1 + (y - y1)*(x2 - x1)/(y2 - y1);           // Note here xint is the x-coordinate of the intersection point of the horizontal ray with the edge
-			
-			if(x < xint) inside = !inside;                             // Reversed logic: ray extends to the right!
-		}
-	}
-return inside;
-};
-
-std::tuple<double, double, double, double, double> project_point_onto_boundary(double x, double y){
-
-	double best_dist = DBL_MAX;
-	double best_px = 0.0, best_py = 0.0;
-	int best_k = 0;
-    double best_t = 0.0;
-	int Np = boundary_membrane_pts.size();
-
-	for (int k = 0; k < Np; ++k){
-
-		int j = (k + 1) % Np;
-		double x1 = boundary_membrane_pts[k][0], y1 = boundary_membrane_pts[k][1];
-		double x2 = boundary_membrane_pts[j][0], y2 = boundary_membrane_pts[j][1];
-
-		// Computing projection of vector c onto vector b
-
-		double bx = x2 - x1, by = y2 - y1;                     // Vector b for segment
-		double cx = x - x1, cy = y - y1;             // Vector c from first endpoint to cell position
-		double b2 = bx*bx + by*by;
-		double t = (b2 > 0.0 ? (cx*bx + cy*by) / b2 : 0.0);    // Just the projection formula: c \cdot b / |b|^2
-
-		double dist;
-		double px, py;   // Our projection
-
-		if (t <= 0.0) {
-			// before first endpoint
-			dist = sqrt(cx*cx + cy*cy);
-			px = x1; py = y1;
-		} else if (t >= 1.0) {
-			// after second endpoint
-			double ux = x - x2, uy = y - y2;
-			dist = sqrt(ux*ux + uy*uy);
-			px = x2; py = y2;
-		} else {
-			// projection between endpoints
-			px = x1 + t * bx;
-			py = y1 + t * by;
-			double ux = x - px, uy = y - py;
-			dist = sqrt(ux*ux + uy*uy);
-		}
-
-		if (dist < best_dist) {
-			best_dist = dist;
-			best_k = k;
-			best_t = t;
-			best_px = px;
-			best_py = py;
-		}
-	}
-
-	return {best_dist, best_px, best_py, best_k, best_t};
-
-}
-
-std::pair<double,double> compute_cell_force2(Cell* pCell)
-{
-    double cell_x = pCell->position[0];
-    double cell_y = pCell->position[1];
-
-    auto [dist, px, py, k, t] = project_point_onto_boundary(cell_x, cell_y);
-
-    bool inside = is_inside(cell_x, cell_y, boundary_membrane_pts);
-    double d = inside ? -dist : dist;
-
-    double R = pCell->phenotype.geometry.radius;
-    double de = d - (d < 0 ? -R : R); // Effective distance
-
-	if (de > 0) {
-
-		return {0.0, 0.0}; // Remove deformation if cells pass through boundary
-    }
-
-    double BM_deadzone = parameters.doubles("membrane_deadzone");
-    if (fabs(de) < BM_deadzone) return {0.0, 0.0};
-
-    double strength = parameters.doubles("membrane_spring_constant");
-    double mag = strength * fabs(de);
-
-    double nx = px - cell_x;
-    double ny = py - cell_y;
-    double norm = sqrt(nx * nx + ny * ny);
-    if (norm > 0)
-    {
-        nx /= norm;
-        ny /= norm;
-    }
-
-    double sign = (d < 0.0 ? -1.0 : 1.0);
-    double Fx =  mag * nx;
-    double Fy =  mag * ny;
-
-    return {Fx, Fy};
-}
-
 std::pair<double,double> compute_cell_force(Cell* pCell)         // TODO: Implement into update_basement_membrane_interactions
 {
 	std::pair<int,int> indices = voxel_indices(pCell);
@@ -336,81 +217,6 @@ double distance_to_membrane(Cell* pCell,
 	return level_set_phi[i][j]; // SDF value at the voxel
 }
 
-void test_enforce_boundary_repulsion(Cell* pCell,
-								   Phenotype& phenotype,
-								   double dt){
-
-	double cellx = pCell->position[0];
-	double celly = pCell->position[1];
-
-
-}
-
-void basement_membrane_interaction2(Cell* pCell,
-                                   Phenotype& phenotype,
-                                   double dt)
-{
-    double cell_x = pCell->position[0];
-    double cell_y = pCell->position[1];
-
-    auto [dist, px, py, k, t] = project_point_onto_boundary(cell_x, cell_y);
-
-    bool inside = is_inside(cell_x, cell_y, boundary_membrane_pts);
-    double d = inside ? -dist : dist;
-
-    double R = pCell->phenotype.geometry.radius;
-    double de = d - (d < 0 ? -R : R);
-
-	// Implement replusion here
-
-	if (de>0){
-
-		double cell_deadzone = parameters.doubles("cell_deadzone");
-		double displacement_needed = de + cell_deadzone; // Make cells only move to deadzone
-
-		double nx = cell_x - px; // away from boundary
-		double ny = cell_y - py;
-		double norm = sqrt(nx * nx + ny * ny);
-		if (norm > 1e-16)
-		{
-			nx /= norm;
-			ny /= norm;
-		}
-
-		// Calculate the mag of the corrective velocity
-		double correction_rate = parameters.doubles("membrane_correction_rate");
-		double mag = correction_rate * displacement_needed;
-
-		pCell->velocity[0] += mag * nx;
-		pCell->velocity[1] += mag * ny;
-	}
-
-	else{ 
-		double L = parameters.doubles("membrane_interaction_length");
-		if (fabs(de) >= L) return;
-
-		double cell_deadzone = parameters.doubles("cell_deadzone");
-		if (fabs(de) < cell_deadzone) return;
-
-		double strength = parameters.doubles("membrane_adhesion_strength");
-		double mag = strength * fabs(de);
-
-		double nx = px - cell_x;
-		double ny = py - cell_y;
-		double norm = sqrt(nx * nx + ny * ny);
-		if (norm > 0)
-		{
-			nx /= norm;
-			ny /= norm;
-		}
-
-		double sign = (d < 0.0 ? 1.0 : -1.0);
-
-		pCell->velocity[0] += mag * nx;
-		pCell->velocity[1] += mag * ny;
-	}
-}
-
 void basement_membrane_interaction(Cell* pCell,
                                    Phenotype& phenotype,
                                    double dt)
@@ -448,6 +254,30 @@ void basement_membrane_interaction(Cell* pCell,
 // Functions for implementing deformations of basement membrane
 // ________________________________________________________________________________________________________________________
 
+// Helper to test if point (x,y) is inside the polygon 
+bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pts) {
+	// std::cout << "We are inside the is_inside function!!!" << std::endl;
+	// std::cout << "Checking if point (" << x << ", " << y << ") is inside the polygon." << std::endl;
+	
+	bool inside = false;
+	int Np = (int)BM_pts.size();
+
+	for(int k=0; k<Np; ++k) {                                         // Looping through each edge of the polygon
+
+		double x1 = BM_pts[k][0], y1 = BM_pts[k][1];           
+		double x2 = BM_pts[(k+1)%Np][0], y2 = BM_pts[(k+1)%Np][1];    // (x1,y1) and (x2,y2) are the endpoints of the edge
+
+		// Check if horizontal ray intersects the edge between (x1,y1) and (x2,y2)
+		// 
+		if(((y1 > y) != (y2 > y)) ) {                                  //This should handle edges cases now
+
+			double xint = x1 + (y - y1)*(x2 - x1)/(y2 - y1);           // Note here xint is the x-coordinate of the intersection point of the horizontal ray with the edge
+			
+			if(x < xint) inside = !inside;                             // Reversed logic: ray extends to the right!
+		}
+	}
+return inside;
+};
 
 void rebuild_signed_distance_field()
 {
@@ -530,7 +360,7 @@ void update_basement_membrane_deformation(double dt){
 		double cell_x = pCell->position[0];
 		double cell_y = pCell->position[1];
 
-		std::pair <double,double> force = compute_cell_force2(pCell);
+		std::pair <double,double> force = compute_cell_force(pCell);
 		double Fx_cell = force.first;
 		double Fy_cell = force.second;
 
@@ -616,7 +446,7 @@ void update_basement_membrane_deformation2(double dt)
     // Iterate over all cells and compute membrane forces distributed by Gaussian
     for (Cell* pCell : *all_cells) {
 
-        auto cell_force = compute_cell_force2(pCell);  // Cell-to-BM force
+        auto cell_force = compute_cell_force(pCell);  // Cell-to-BM force
         double Fx_cell = cell_force.first;
         double Fy_cell = cell_force.second;
 
@@ -1066,7 +896,7 @@ void create_cell_types( void )
 	   This builds the map of cell definitions and summarizes the setup. 
 	*/
 		
-	cell_defaults.functions.add_cell_basement_membrane_interactions = basement_membrane_interaction2; 
+	cell_defaults.functions.add_cell_basement_membrane_interactions = basement_membrane_interaction; 
 	cell_defaults.functions.calculate_distance_to_membrane = distance_to_membrane; 
 
 	build_cell_definitions_maps(); 
