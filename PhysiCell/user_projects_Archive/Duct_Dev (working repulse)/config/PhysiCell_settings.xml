@@ -387,24 +387,24 @@
     <user_parameters>
         <number_of_cells type="int" units="none" description="initial number of cells (for each cell type)">0</number_of_cells>
         <membrane_interaction_length type="double" units="micron" description="cell membrane interaction length">500</membrane_interaction_length>
-        <membrane_adhesion_strength type="double" units="micron/min" description="cell membrane adhesions strength">0</membrane_adhesion_strength>
-        <membrane_spring_constant type="double" units="micron/um" description="membrane spring constant">0.01</membrane_spring_constant>
+        <membrane_adhesion_strength type="double" units="micron/min" description="cell membrane adhesions strength">0.005</membrane_adhesion_strength>
+        <membrane_spring_constant type="double" units="micron/um" description="membrane spring constant">0.005</membrane_spring_constant>
         <membrane_num_points type="int" units="none" description="number of points for the membrane shape">250</membrane_num_points>
-        <number_EP_cells type="int" units="none" description="number of epithelial cells">1</number_EP_cells>
-        <x type="double" units="micron" description="x position of the first epithelial cell">-175</x>
-        <y type="double" units="micron" description="y position of the first epithelial cell">150</y>
+        <number_EP_cells type="int" units="none" description="number of epithelial cells">125</number_EP_cells>
+        <x type="double" units="micron" description="x position of the first epithelial cell">-275</x>
+        <y type="double" units="micron" description="y position of the first epithelial cell">350</y>
         <ep_displacement type="double" units="micron" description="epithelial cell displacement">15</ep_displacement>
         <membrane_deadzone type="double" units="micron/min" description="deadzone for the membrane spring force">5</membrane_deadzone>
         <cell_deadzone type="double" units="micron/min" description="deadzone for the cell spring force">5</cell_deadzone>
         <deformation_time_step type="double" units="min" description="time step for the basement membrane deformation">0</deformation_time_step>
         <membrane_force_smoothing_sigma type="double" units="micron" description="sigma for the membrane force smoothing">25</membrane_force_smoothing_sigma>
-        <membrane_elastic_constant type="double" units="1/min" description="membrane elastic constant">.001</membrane_elastic_constant>
+        <membrane_elastic_constant type="double" units="1/min" description="membrane elastic constant">0</membrane_elastic_constant>
         <cluster_cell_count type="int" units="none" description="number of cells in the cluster">0</cluster_cell_count>
         <cluster_center_x type="double" units="micron" description="x position of the cluster center">280</cluster_center_x>
         <cluster_center_y type="double" units="micron" description="y position of the cluster center">0</cluster_center_y>
         <cluster_radius type="double" units="micron" description="radius of the cluster">30</cluster_radius>
         <membrane_circle_radius type="double" units="micron" description="radius of the circular membrane">300</membrane_circle_radius>
-        <proliferation_exit_rate type="double" units="1/min" description="exit rate for proliferation">0</proliferation_exit_rate>
+        <proliferation_exit_rate type="double" units="1/min" description="exit rate for proliferation">.001</proliferation_exit_rate>
         <membrane_correction_rate type="double" units="micron/min" description="membrane repulsion strength">1</membrane_correction_rate>
     </user_parameters>
 </PhysiCell_settings>

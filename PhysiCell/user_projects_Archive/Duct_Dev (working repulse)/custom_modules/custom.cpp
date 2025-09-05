@@ -78,7 +78,7 @@ std::vector<double> initial_edge_length;
 // Helpers 
 // ________________________________________________________________________________________________________________________
 
-// ######### Helper function to save boundary points to a CSV file #########
+// Helper function to save boundary points to a CSV file
 void boundary_to_csv( std::vector<std::vector<double>> const& boundary_pts, 
 					  std::string const& filename )
 {	
@@ -100,7 +100,7 @@ void boundary_to_csv( std::vector<std::vector<double>> const& boundary_pts,
 	std::cout << "Boundary points saved to " << filename << " successfully" << std::endl;
 }
 
-// ######### Helper function to compute the gradient based on voxel center  ##############
+// Helper function to compute the gradient (TODO: Verify if this is correct: Good)
 
 std::pair<double, double> level_set_gradient(int i, int j, 
 										 const std::vector<std::vector<double>>& phi,
@@ -137,8 +137,6 @@ std::pair<double, double> level_set_gradient(int i, int j,
 	return { phi_x, phi_y };
 }
 
-// ########### Helper function to normalize the gradient ##############
-
 std::pair<double,double> level_set_normalize(const std::pair<double, double>& gradient)
 {
 	std::vector<double> normal = { gradient.first, gradient.second };
@@ -150,7 +148,7 @@ std::pair<double,double> level_set_normalize(const std::pair<double, double>& gr
 	return { normal[0], normal[1] };
 }
 
-// ########## Helper function for getting the voxel indices of a cell ###########
+// Helper function for getting the voxel indices of a cell
 std::pair<double,double> voxel_indices(Cell* pCell)
 
 {
@@ -170,9 +168,8 @@ std::pair<double,double> voxel_indices(Cell* pCell)
 	return {i, j};
 }
 
-// ####### Helper to test if point (x,y) is inside the polygon ##########
+// Helper to test if point (x,y) is inside the polygon 
 bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pts) {
-
 	// std::cout << "We are inside the is_inside function!!!" << std::endl;
 	// std::cout << "Checking if point (" << x << ", " << y << ") is inside the polygon." << std::endl;
 	
@@ -196,8 +193,7 @@ bool is_inside(double x, double y, const std::vector<std::vector<double>>& BM_pt
 return inside;
 };
 
-// ######### Function for finding to projection of a point onto the boundary #########
-std::tuple<double, double, double, double, double> project_point_onto_boundary(double x, double y){   // TODO: Replace redundant projection code
+std::tuple<double, double, double, double, double> project_point_onto_boundary(double x, double y){
 
 	double best_dist = DBL_MAX;
 	double best_px = 0.0, best_py = 0.0;
@@ -216,7 +212,7 @@ std::tuple<double, double, double, double, double> project_point_onto_boundary(d
 		double bx = x2 - x1, by = y2 - y1;                     // Vector b for segment
 		double cx = x - x1, cy = y - y1;             // Vector c from first endpoint to cell position
 		double b2 = bx*bx + by*by;
-		double t = (b2 > 0.0 ? (cx*bx + cy*by) / b2 : 0.0);    // Just the projection formula: c \cdot b / ||b||^2
+		double t = (b2 > 0.0 ? (cx*bx + cy*by) / b2 : 0.0);    // Just the projection formula: c \cdot b / |b|^2
 
 		double dist;
 		double px, py;   // Our projection
@@ -251,21 +247,16 @@ std::tuple<double, double, double, double, double> project_point_onto_boundary(d
 
 }
 
-// ______________________________________________________________________________________________________________________
-//_________________________________________________________________________________________________________________________
-// Testing functions for membrane interactions based on cell centers (not voxel-based)
-// ________________________________________________________________________________________________________________________
-
-// ################ Function that computes the BM-to-Cell force ####################
-std::pair<double,double> BM_to_cell_interaction2(Cell* pCell)
+std::pair<double,double> compute_cell_force2(Cell* pCell)
 {
     double cell_x = pCell->position[0];
     double cell_y = pCell->position[1];
 
     auto [dist, px, py, k, t] = project_point_onto_boundary(cell_x, cell_y);
-    bool inside = is_inside(cell_x, cell_y, boundary_membrane_pts);
 
+    bool inside = is_inside(cell_x, cell_y, boundary_membrane_pts);
     double d = inside ? -dist : dist;
+
     double R = pCell->phenotype.geometry.radius;
     double de = d - (d < 0 ? -R : R); // Effective distance
 
@@ -277,13 +268,12 @@ std::pair<double,double> BM_to_cell_interaction2(Cell* pCell)
     double BM_deadzone = parameters.doubles("membrane_deadzone");
     if (fabs(de) < BM_deadzone) return {0.0, 0.0};
 
-    double strength = parameters.doubles("membrane_spring_constant"); // Parameter for spring constant
-    double mag = strength * fabs(de);  // Hooke's law, F = kx
+    double strength = parameters.doubles("membrane_spring_constant");
+    double mag = strength * fabs(de);
 
-    double nx = px - cell_x; // Normal vector from cell to boundary
+    double nx = px - cell_x;
     double ny = py - cell_y;
     double norm = sqrt(nx * nx + ny * ny);
-	
     if (norm > 0)
     {
         nx /= norm;
@@ -291,13 +281,71 @@ std::pair<double,double> BM_to_cell_interaction2(Cell* pCell)
     }
 
     double sign = (d < 0.0 ? -1.0 : 1.0);
-    double Fx =  mag * nx;  // Force components: Hookean force applied in the normal direction
+    double Fx =  mag * nx;
     double Fy =  mag * ny;
 
     return {Fx, Fy};
 }
 
-// ################### Function that implements Cell-to-BM force ####################
+std::pair<double,double> compute_cell_force(Cell* pCell)         // TODO: Implement into update_basement_membrane_interactions
+{
+	std::pair<int,int> indices = voxel_indices(pCell);
+    int i = indices.first;
+    int j = indices.second;
+
+    double d = level_set_phi[i][j];
+	// std::cout << "Distance to membrane: " << d << std::endl;
+	double R = pCell->phenotype.geometry.radius;
+	// std::cout << "Cell radius: " << R << std:: endl;
+	double de = d - (d < 0 ? -R : R);                                    // de is the offseted distance to the BM
+	// std::cout << "Effective distance to membrane: " << de << std::endl;
+
+    double L = parameters.doubles("membrane_interaction_length");        // 500 now 
+	double strength = parameters.doubles("membrane_spring_constant");  //.001 right now
+
+	double BM_deadzone = parameters.doubles("membrane_deadzone");
+
+	if (fabs(de) <BM_deadzone) return {0.0, 0.0}; 
+
+    auto grad   = level_set_gradient( i, j,level_set_phi, ls_dx, ls_dy); // TThis is the gradient from the voxel center not the cell center
+    auto normal = level_set_normalize(grad);
+    double sign = (d < 0.0 ? +1.0 : -1.0);
+
+    double mag = strength * fabs(de);    // ThisS is Hooke's law, F = kx
+
+    double Fx = sign * mag * normal.first;
+    double Fy = sign * mag * normal.second;
+
+	return { Fx, Fy };
+}
+
+// ________________________________________________________________________________________________________________________
+//_________________________________________________________________________________________________________________________
+// Level set functions
+// ________________________________________________________________________________________________________________________
+
+// Distance should just be the value of SDF at the voxel???
+double distance_to_membrane(Cell* pCell,
+                             Phenotype& phenotype,
+                             double dt)
+{
+    std::pair<int,int> indices = voxel_indices(pCell);
+    int i = indices.first;
+    int j = indices.second;
+
+	return level_set_phi[i][j]; // SDF value at the voxel
+}
+
+void test_enforce_boundary_repulsion(Cell* pCell,
+								   Phenotype& phenotype,
+								   double dt){
+
+	double cellx = pCell->position[0];
+	double celly = pCell->position[1];
+
+
+}
+
 void basement_membrane_interaction2(Cell* pCell,
                                    Phenotype& phenotype,
                                    double dt)
@@ -363,66 +411,6 @@ void basement_membrane_interaction2(Cell* pCell,
 	}
 }
 
-// ________________________________________________________________________________________________________________________
-//_________________________________________________________________________________________________________________________
-// Level set functions for membrane interactions (voxel-based)
-// ________________________________________________________________________________________________________________________
-
-// Distance should just be the value of SDF at the voxel
-double distance_to_membrane(Cell* pCell,
-                             Phenotype& phenotype,
-                             double dt)
-{
-    std::pair<int,int> indices = voxel_indices(pCell);
-    int i = indices.first;
-    int j = indices.second;
-
-	return level_set_phi[i][j]; // SDF value at the voxel
-}
-
-void test_enforce_boundary_repulsion(Cell* pCell,
-								   Phenotype& phenotype,
-								   double dt){
-
-	double cellx = pCell->position[0];
-	double celly = pCell->position[1];
-
-}
-
-// ################ Function that computes the BM-to-Cell force ####################
-std::pair<double,double> BM_to_cell_interaction(Cell* pCell, double spring_constant)         // TODO: Implement into update_basement_membrane_interactions
-{
-	std::pair<int,int> indices = voxel_indices(pCell);
-    int i = indices.first;
-    int j = indices.second;
-
-    double d = level_set_phi[i][j];
-	// std::cout << "Distance to membrane: " << d << std::endl;
-	double R = pCell->phenotype.geometry.radius;
-	// std::cout << "Cell radius: " << R << std:: endl;
-	double de = d - (d < 0 ? -R : R);                                    // de is the offseted distance to the BM
-	// std::cout << "Effective distance to membrane: " << de << std::endl;
-
-    double L = parameters.doubles("membrane_interaction_length");        // 500 now 
-	double strength = parameters.doubles("membrane_spring_constant");  //.001 right now
-
-	double BM_deadzone = parameters.doubles("membrane_deadzone");
-
-	if (fabs(de) <BM_deadzone) return {0.0, 0.0}; 
-
-    auto grad   = level_set_gradient( i, j,level_set_phi, ls_dx, ls_dy); // TThis is the gradient from the voxel center not the cell center
-    auto normal = level_set_normalize(grad);
-    double sign = (d < 0.0 ? +1.0 : -1.0);
-
-    double mag = strength * fabs(de);    // ThisS is Hooke's law, F = kx
-
-    double Fx = sign * mag * normal.first;
-    double Fy = sign * mag * normal.second;
-
-	return { Fx, Fy };
-}
-
-// ###################### Function that implements Cell-to-BM force ####################
 void basement_membrane_interaction(Cell* pCell,
                                    Phenotype& phenotype,
                                    double dt)
@@ -542,7 +530,7 @@ void update_basement_membrane_deformation(double dt){
 		double cell_x = pCell->position[0];
 		double cell_y = pCell->position[1];
 
-		std::pair <double,double> force = BM_to_cell_interaction2(pCell);
+		std::pair <double,double> force = compute_cell_force2(pCell);
 		double Fx_cell = force.first;
 		double Fy_cell = force.second;
 
@@ -628,7 +616,7 @@ void update_basement_membrane_deformation2(double dt)
     // Iterate over all cells and compute membrane forces distributed by Gaussian
     for (Cell* pCell : *all_cells) {
 
-        auto cell_force = BM_to_cell_interaction2(pCell);  // Cell-to-BM force
+        auto cell_force = compute_cell_force2(pCell);  // Cell-to-BM force
         double Fx_cell = cell_force.first;
         double Fy_cell = cell_force.second;
 
