@@ -149,7 +149,6 @@ void cell_interactions_cc(Cell* pCell,
     bool isCAF = (cell_name == "CAF");
     bool isEP  = (cell_name == "Epithelial");
 
-
     if (isEP)
     {
         
@@ -363,6 +362,7 @@ void update_basement_membrane_deformation2(double dt)
     rebuild_signed_distance_field();
 }
 
+// TODO CLEAN: MOVE TO UTILS
 void clustered_cell(double a, double b, double amp, int freq, int num_points, double center_x, double center_y, double radius, std::string type)
 {
 	Cell_Definition* pBM_def = cell_definitions_by_name[type];   //cell_definitions_by_name[ type_name ] = pCD; 
@@ -399,7 +399,7 @@ void custom_rule( Cell* pCell, Phenotype& phenotype, double dt )
 void create_cell_types( void )
 {
 	// set the random seed 
-	if (parameters.ints.find_index("random_seed") != -1)
+	if (parameters.ints.find_index("random_seed") != -1) // TODO CLEAN: One liner
 	{
 		SeedRandom(parameters.ints("random_seed"));
 	}
@@ -494,7 +494,7 @@ void create_cell_types( void )
 	Cell_Definition* pCD = cell_definitions_by_name["Epithelial"];
 	if (pCD)
 	{	
-		cell_defaults.functions.cell_division_function = parallel_cell_division;
+		cell_defaults.functions.cell_division_function = parallel_cell_division;   // TODO CLEAN: Make one liner
 	}
 
 	/*
@@ -540,14 +540,15 @@ void setup_tissue( void )
 	double Yrange = Ymax - Ymin; 
 	double Zrange = Zmax - Zmin; 
 	
-	
 	// load cells from your CSV file (if enabled)
 	load_cells_from_pugixml();
 	set_parameters_from_distributions();
 
 	//_______________________________________________________________________________________________________________________
-	// Placing cells to test the basement membrane deformation
+	//_______________________________________________________________________________________________________________________
+    // Initialization
 
+    // Placing cells to test the basement membrane deformation
 	// Example code for generating a arbitrary boundary
 
 	int num_points = parameters.ints("membrane_num_points");
@@ -638,12 +639,9 @@ void setup_tissue( void )
 		pCell->custom_data["default_cyto_rate"] = pCell->phenotype.volume.cytoplasmic_biomass_change_rate;
 		pCell->custom_data["default_nuclear_rate"] = pCell->phenotype.volume.nuclear_biomass_change_rate;
 		pCell->custom_data["default_fluid_rate"] = pCell->phenotype.volume.fluid_change_rate;
-
 	}
 	
-	
     initialize_level_set_duct(boundary_membrane_pts);
-
 	return; 
 }
 

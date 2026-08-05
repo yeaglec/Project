@@ -4,6 +4,7 @@
 #include "./custom.h"
 #include <cmath>
 #include <cfloat>
+#include <algorithm>
 #include <iostream>
 //___________________________________________________________________________________________________________________________
 //___________________________________________________________________________________________________________________________
@@ -318,8 +319,8 @@ void membrane_strain_lin(std::vector<std::pair<double,double>>& node_forces)
         double x = current_length - rest_length;
         double F_mag = k * x;        // parameterize linear and exponetial cases 
         
-        // if(F_mag > max_force) F_mag = max_force;
-        // if(F_mag < -max_force) F_mag = -max_force;
+        if(F_mag > max_force) F_mag = max_force;
+        if(F_mag < -max_force) F_mag = -max_force;
 
         double nx = dx / current_length;
         double ny = dy / current_length;
@@ -354,8 +355,8 @@ void membrane_strain_exp(std::vector<std::pair<double,double>>& node_forces)
         double x = current_length - rest_length;
         double F_mag = k * (std::exp(alpha * x) - 1.0);        // parameterize linear and exponetial cases 
         
-        // if(F_mag > max_force) F_mag = max_force;
-        // if(F_mag < -max_force) F_mag = -max_force;
+        if(F_mag > max_force) F_mag = max_force;
+        if(F_mag < -max_force) F_mag = -max_force;    // Force cap for stability
 
         double nx = dx / current_length;
         double ny = dy / current_length;
@@ -431,15 +432,15 @@ void membrane_bending_stiffness(std::vector<std::pair<double,double>>& node_forc
 {
     int Np = (int)boundary_membrane_pts.size();
     double kb = parameters.doubles("membrane_bending_constant"); 
+	double max_force = 100.0;
 
     for (int i = 0; i < Np; ++i) {
-        // Safe modulo arithmetic for the previous node to avoid negative indices
-        int prev = (i - 1 + Np) % Np;
-        int next = (i + 1) % Np;
+        int prev_node = (i - 1 + Np) % Np;
+        int next_node = (i + 1) % Np;
 
-        // Calculate the midpoint of the two adjacent neighbors
-        double mid_x = 0.5 * (boundary_membrane_pts[prev][0] + boundary_membrane_pts[next][0]);
-        double mid_y = 0.5 * (boundary_membrane_pts[prev][1] + boundary_membrane_pts[next][1]);
+        // Calculate the midpoint of the  neighbors
+        double mid_x = 0.5 * (boundary_membrane_pts[prev_node][0] + boundary_membrane_pts[next_node][0]);
+        double mid_y = 0.5 * (boundary_membrane_pts[prev_node][1] + boundary_membrane_pts[next_node][1]);
 
         // Calculate the vector from the current node to that midpoint (the deviation)
         double dev_x = mid_x - boundary_membrane_pts[i][0];
@@ -449,15 +450,101 @@ void membrane_bending_stiffness(std::vector<std::pair<double,double>>& node_forc
         double F_bx = kb * dev_x;
         double F_by = kb * dev_y;
 
+		if(F_bx > max_force) F_bx = max_force;
+        if(F_bx < -max_force) F_bx = -max_force;    // Force cap for stability
+		if(F_by > max_force) F_by = max_force;
+        if(F_by < -max_force) F_by = -max_force;    // Force cap for stability
+
         // Apply the restorative bending force to the current node
         node_forces[i].first  += F_bx;
         node_forces[i].second += F_by;
 
-        // Apply equal and opposite reaction forces to the neighbors (Newton's 3rd Law)
-        node_forces[prev].first  -= 0.5 * F_bx;
-        node_forces[prev].second -= 0.5 * F_by;
+        // Apply equal and opposite reaction forces to the neighbors 
+        node_forces[prev_node].first  -= 0.5 * F_bx;
+        node_forces[prev_node].second -= 0.5 * F_by;
         
-        node_forces[next].first  -= 0.5 * F_bx;
-        node_forces[next].second -= 0.5 * F_by;
+        node_forces[next_node].first  -= 0.5 * F_bx;
+        node_forces[next_node].second -= 0.5 * F_by;
+    }
+}
+
+void add_membrane_nodes()
+{
+    // Simple remesh mode (default): split any edge longer than max_edge_length.
+    // Future toggle point for a cell-body-aware gate:
+    // const bool use_cell_body_remesh = (parameters.doubles("use_cell_body_remesh") == 1.0);
+    const bool use_cell_body_remesh = false;
+    double max_edge_length = parameters.doubles("max_edge_length");
+
+    if (use_cell_body_remesh && all_cells == nullptr) return;
+
+    for (int i = 0; i < (int)boundary_membrane_pts.size(); ++i) {
+        int next = (i + 1) % boundary_membrane_pts.size();
+        
+        double dx = boundary_membrane_pts[next][0] - boundary_membrane_pts[i][0];
+        double dy = boundary_membrane_pts[next][1] - boundary_membrane_pts[i][1];
+        double dist = sqrt(dx*dx + dy*dy);
+
+        bool should_split = (dist > max_edge_length);
+
+        if (use_cell_body_remesh) {
+            // Future cell-body-aware remesh gate (intentionally kept commented for now):
+            //
+            // double remesh_stretch_factor = parameters.doubles("remesh_stretch_factor");
+            // double remesh_cell_overlap_fraction = parameters.doubles("remesh_cell_overlap_fraction");
+            // int remesh_min_cell_matches = std::max(1, (int)std::round(parameters.doubles("remesh_min_cell_matches")));
+            //
+            // double rest_length = initial_edge_length[i];
+            // if (rest_length <= 1e-16) should_split = false;
+            //
+            // double stretch_ratio = dist / rest_length;
+            // if (stretch_ratio < remesh_stretch_factor) should_split = false;
+            //
+            // int supporting_cells = 0;
+            // double inv_dist = 1.0 / dist;
+            // for (Cell* pCell : *all_cells) {
+            //     auto projection = project_point_onto_boundary(pCell->position[0], pCell->position[1]);
+            //     int best_k = static_cast<int>(std::round(std::get<3>(projection)));
+            //     if (best_k != i) continue;
+            //
+            //     double t_clamped = std::max(0.0, std::min(std::get<4>(projection), 1.0));
+            //     double cell_radius = pCell->phenotype.geometry.radius;
+            //     double t_span = cell_radius * inv_dist;
+            //     double left = std::max(0.0, t_clamped - t_span);
+            //     double right = std::min(1.0, t_clamped + t_span);
+            //     double overlap_fraction = std::max(0.0, right - left);
+            //
+            //     if (overlap_fraction >= remesh_cell_overlap_fraction) {
+            //         ++supporting_cells;
+            //         if (supporting_cells >= remesh_min_cell_matches) break;
+            //     }
+            // }
+            //
+            // if (supporting_cells < remesh_min_cell_matches) should_split = false;
+        }
+
+        if (!should_split) continue;
+
+        // Split this edge in half.
+        std::vector<double> mid_pt = {
+            0.5 * (boundary_membrane_pts[i][0] + boundary_membrane_pts[next][0]),
+            0.5 * (boundary_membrane_pts[i][1] + boundary_membrane_pts[next][1]),
+            0.0
+        };
+
+        std::vector<double> mid_home = {
+            0.5 * (initial_node_positions[i][0] + initial_node_positions[next][0]),
+            0.5 * (initial_node_positions[i][1] + initial_node_positions[next][1]),
+            0.0
+        };
+
+        double halved_L0 = initial_edge_length[i] / 2.0;
+        initial_edge_length[i] = halved_L0;
+
+        boundary_membrane_pts.insert(boundary_membrane_pts.begin() + i + 1, mid_pt);
+        initial_node_positions.insert(initial_node_positions.begin() + i + 1, mid_home);
+        initial_edge_length.insert(initial_edge_length.begin() + i + 1, halved_L0);
+
+        i++;
     }
 }

@@ -149,9 +149,9 @@ void cell_interactions_cc(Cell* pCell,
     bool isCAF = (cell_name == "CAF");
     bool isEP  = (cell_name == "Epithelial");
 
-
     if (isEP)
     {
+        
         // Implement replusion here (original EP behavior)
         if (de > 0)
         {
@@ -204,6 +204,43 @@ void cell_interactions_cc(Cell* pCell,
     // --- CAF: treat de < 0 as penetration (they were outside originally) ---
     if (isCAF)
     {
+
+        if(parameters.doubles("is_lumenal_pressure") == 1){
+            // Calculate normalized outward vector for lumenal pressure
+            double nx_out = px - cell_x;
+            double ny_out = py - cell_y;
+            double norm_out = sqrt(nx_out * nx_out + ny_out * ny_out);
+            
+            if (norm_out > 1e-16)
+            {
+                nx_out /= norm_out;
+                ny_out /= norm_out;
+            }
+
+            // double pressure_mag = parameters.doubles("lumenal_pressure_strength");
+            // // Apply constant lumenal pressure outward
+            // pCell->velocity[0] += pressure_mag * nx_out;
+            // pCell->velocity[1] += pressure_mag * ny_out;
+
+            // Apply a progressive lumenal pressure
+            // 2. Scale the pressure based on depth into the lumen
+            // If 'de' is highly negative when deep in the lumen, we use fabs(de)
+            // We can optionally divide by a 'max_lumen_radius' to normalize it between 0 and 1
+            
+            double pressure_base_mag = parameters.doubles("lumenal_pressure_strength");
+            
+            // Only apply outward pressure to cells that have detached/stratified (de < 0)
+            if (de < 0) 
+            {
+                // The further into the lumen, the higher the outward push
+                double depth_scale = fabs(de); 
+                double applied_pressure = pressure_base_mag * depth_scale;
+
+                pCell->velocity[0] += applied_pressure * nx_out;
+                pCell->velocity[1] += applied_pressure * ny_out;
+            }
+        }
+
         if (de >0)
         {
             double cell_deadzone = parameters.doubles("cell_deadzone");
@@ -279,15 +316,31 @@ void update_basement_membrane_deformation2(double dt)
         double best_t = pCell->custom_data[BM_t_idx];
 		int best_k = static_cast<int>(std::round(best_k_d));
 
-		BM_Smoothing(node_forces, Fx_BM, Fy_BM, best_k, best_px, best_py, best_t);
+        if (parameters.doubles("is_gaussian_smoothing") == 1) BM_Smoothing(node_forces, Fx_BM, Fy_BM, best_k, best_px, best_py, best_t);
+		else{
+
+        // Direct Local Force Transfer (No Smoothing) 
+        int k1 = best_k;
+        int k2 = (best_k + 1) % Np;
+
+        // We distribute the force to the two segment endpoints based on this distance.
+        node_forces[k1].first  += Fx_BM * (1.0 - best_t);
+        node_forces[k1].second += Fy_BM * (1.0 - best_t);          // best_t (0.0 to 1.0) represents where on the segment the cell projects.
+
+
+        node_forces[k2].first  += Fx_BM * best_t;
+        node_forces[k2].second += Fy_BM * best_t;
+        }
 	}
 
 	// Enforcing membrane elasticity between node pairs
-    if(parameters.doubles("strain_lin")==1) membrane_strain_lin(node_forces);
+    if(parameters.doubles("is_strain_lin")==1) membrane_strain_lin(node_forces);
     else membrane_strain_exp(node_forces);
 
+    if(parameters.doubles("is_bending_stiffness")==1) membrane_bending_stiffness(node_forces);
+
 	// Establishing membrane "memory" or "home" force, keeping the membrane from deforming inwards too much
-    if(parameters.doubles("restore_lin")==1) membrane_restoring_force_lin(node_forces);
+    if(parameters.doubles("is_restore_lin")==1) membrane_restoring_force_lin(node_forces);
     else membrane_restoring_force_exp(node_forces);
 
     ///_________
@@ -303,10 +356,13 @@ void update_basement_membrane_deformation2(double dt)
         boundary_membrane_pts[i][1] += node_forces[i].second * dt;
     }
 
+    if (parameters.doubles("is_add_membrane_nodes") == 1) add_membrane_nodes();
+
     // Rebuild signed distance field after modifications
     rebuild_signed_distance_field();
 }
 
+// TODO CLEAN: MOVE TO UTILS
 void clustered_cell(double a, double b, double amp, int freq, int num_points, double center_x, double center_y, double radius, std::string type)
 {
 	Cell_Definition* pBM_def = cell_definitions_by_name[type];   //cell_definitions_by_name[ type_name ] = pCD; 
@@ -343,7 +399,7 @@ void custom_rule( Cell* pCell, Phenotype& phenotype, double dt )
 void create_cell_types( void )
 {
 	// set the random seed 
-	if (parameters.ints.find_index("random_seed") != -1)
+	if (parameters.ints.find_index("random_seed") != -1) // TODO CLEAN: One liner
 	{
 		SeedRandom(parameters.ints("random_seed"));
 	}
@@ -438,7 +494,7 @@ void create_cell_types( void )
 	Cell_Definition* pCD = cell_definitions_by_name["Epithelial"];
 	if (pCD)
 	{	
-		cell_defaults.functions.cell_division_function = parallel_cell_division;
+		cell_defaults.functions.cell_division_function = parallel_cell_division;   // TODO CLEAN: Make one liner
 	}
 
 	/*
@@ -484,14 +540,15 @@ void setup_tissue( void )
 	double Yrange = Ymax - Ymin; 
 	double Zrange = Zmax - Zmin; 
 	
-	
 	// load cells from your CSV file (if enabled)
 	load_cells_from_pugixml();
 	set_parameters_from_distributions();
 
 	//_______________________________________________________________________________________________________________________
-	// Placing cells to test the basement membrane deformation
+	//_______________________________________________________________________________________________________________________
+    // Initialization
 
+    // Placing cells to test the basement membrane deformation
 	// Example code for generating a arbitrary boundary
 
 	int num_points = parameters.ints("membrane_num_points");
@@ -519,6 +576,9 @@ void setup_tissue( void )
 	double EP_rad = parameters.doubles("EP_rad");
 
 	generate_boundary_cells(a, b, amp, freq, "CAF", -5, num_caf);
+  	// Cell_Definition* pTumorDef = cell_definitions_by_name["CAF"];
+	// Cell* Caf = create_cell( *pTumorDef );
+	// Caf->assign_position( { 10,10, 0.0 } );
 
     // _____________ TESTING  Triangle Membrane Elasticity and Restoring Force __________________
 
@@ -547,6 +607,17 @@ void setup_tissue( void )
 	// Cell* Caf = create_cell( *Caf_def );
 	// Caf->assign_position( { 225,200, 0.0 } );
 
+    // _____________ TESTING Added Membrane Points and Bending Stiffness __________________
+
+	// int num_caf = parameters.ints("number_CAF_cells");
+	// Cell_Definition* Caf_def = cell_definitions_by_index[2];  // Need at least 1 cell or sim gets mad
+	// Cell* Caf = create_cell( *Caf_def );
+	// Caf->assign_position( { 225,200, 0.0 } );
+
+    // // Put Test Functions Here
+    // Test_Remesh();
+    // test_perb = Test_Remesh_Pert;  //nullptr if not testing
+
 	
 	// ##################
 
@@ -568,12 +639,9 @@ void setup_tissue( void )
 		pCell->custom_data["default_cyto_rate"] = pCell->phenotype.volume.cytoplasmic_biomass_change_rate;
 		pCell->custom_data["default_nuclear_rate"] = pCell->phenotype.volume.nuclear_biomass_change_rate;
 		pCell->custom_data["default_fluid_rate"] = pCell->phenotype.volume.fluid_change_rate;
-
 	}
 	
-	
     initialize_level_set_duct(boundary_membrane_pts);
-
 	return; 
 }
 

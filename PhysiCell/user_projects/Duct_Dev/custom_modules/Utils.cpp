@@ -95,7 +95,7 @@ std::pair<double,double> voxel_indices(Cell* pCell){
 	return {i, j};
 }
 /* 
-####### Helper to test if point (x,y) is inside the polygon ##########
+Helper to test if point (x,y) is inside the polygon ##########
 Determines if a point (x, y) is strictly inside a closed polygon using the 
 ray-casting (even-odd) algorithm. 
 
@@ -240,7 +240,7 @@ void generate_boundary_cells(double a, double b, double amp, int freq, std::stri
 
 		Cell* pC = nullptr;
 		std::cout << "Nullptr declared" << std::endl;	
-		if(i==0) pC = create_cell(*pTumorDef );
+		if(i==0 || i==1 || i==num_cells-1 || i==2 || i==num_cells-2) pC = create_cell(*pTumorDef );
 		else pC = create_cell( *pBM_def );
 		std::cout << "Cell created" << std::endl;	
 
