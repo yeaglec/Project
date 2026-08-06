@@ -166,7 +166,7 @@ void create_cell_types( void )
 
 	// Ensure BM helper functions are assigned for types that should have BM interactions
 
-	std::vector<std::string> bm_targets = {"Epithelial","CAF","BM"};
+	std::vector<std::string> bm_targets = {"Epithelial","CAF","BM", "Tumor"};
 	for (auto &name : bm_targets) {
 		auto it = cell_definitions_by_name.find(name);
 		if (it == cell_definitions_by_name.end()) continue;
