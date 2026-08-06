@@ -64,7 +64,7 @@ PhysiCell_pugixml.o PhysiCell_settings.o PhysiCell_geometry.o
 
 # put your custom objects here (they should be in the custom_modules directory)
 
-PhysiCell_custom_module_OBJECTS := custom.o Utils.o Models.o Tests.o
+PhysiCell_custom_module_OBJECTS := custom.o Membrane.o Geometry.o Utils.o Tests.o
 
 pugixml_OBJECTS := pugixml.o
 
@@ -180,15 +180,17 @@ PhysiCell_geometry.o: ./modules/PhysiCell_geometry.cpp
 custom.o: ./custom_modules/custom.cpp 
 	$(COMPILE_COMMAND) -c ./custom_modules/custom.cpp
 	
+Membrane.o: ./custom_modules/Membrane.cpp 
+	$(COMPILE_COMMAND) -c ./custom_modules/Membrane.cpp
+
+Geometry.o: ./custom_modules/Geometry.cpp 
+	$(COMPILE_COMMAND) -c ./custom_modules/Geometry.cpp
+
 Utils.o: ./custom_modules/Utils.cpp 
 	$(COMPILE_COMMAND) -c ./custom_modules/Utils.cpp
 
-Models.o: ./custom_modules/Models.cpp
-	$(COMPILE_COMMAND) -c ./custom_modules/Models.cpp
-
 Tests.o: ./custom_modules/Tests.cpp
 	$(COMPILE_COMMAND) -c ./custom_modules/Tests.cpp
-
 	
 # cleanup
 

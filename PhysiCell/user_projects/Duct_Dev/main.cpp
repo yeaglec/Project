@@ -79,6 +79,7 @@
 // put custom code modules here! 
 
 #include "./custom_modules/custom.h" 
+#include "./custom_modules/Membrane.h"
 #include "./custom_modules/Utils.h"
 	
 using namespace BioFVM;
@@ -234,7 +235,7 @@ int main( int argc, char* argv[] )
 			// update the basement membrane deformation
 			if( PhysiCell_globals.current_time > next_bm_update - 0.5*diffusion_dt )
 				{
-					update_basement_membrane_deformation2(bm_interval);
+					update_basement_membrane_deformation(bm_interval);
 					next_bm_update += bm_interval;
 				}
 			

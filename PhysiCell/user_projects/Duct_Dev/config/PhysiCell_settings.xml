@@ -393,7 +393,7 @@
             <phenotype>
                 <cycle code="5" name="live">
                     <phase_transition_rates units="1/min">
-                        <rate start_index="0" end_index="0" fixed_duration="false">0.00072</rate>
+                        <rate start_index="0" end_index="0" fixed_duration="false">0.00144</rate>
                     </phase_transition_rates>
                     <standard_asymmetric_division enabled="False">
                         <asymmetric_division_probability name="Epithelial" units="dimensionless">0</asymmetric_division_probability>
@@ -703,7 +703,6 @@
     </cell_rules>
 
     <user_parameters>
-        <number_of_cells type="int" units="none" description="initial number of cells (for each cell type)">0</number_of_cells>
         <membrane_interaction_length type="double" units="micron" description="cell membrane interaction length">10</membrane_interaction_length>
         <membrane_adhesion_strength type="double" units="micron/min" description="cell membrane adhesions strength">.01</membrane_adhesion_strength>
         <membrane_spring_constant type="double" units="micron/um" description="membrane spring constant">.01</membrane_spring_constant>

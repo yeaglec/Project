@@ -65,50 +65,47 @@
 ###############################################################################
 */
 
+#ifndef __CUSTOM_H__
+#define __CUSTOM_H__
+
 #define _USE_MATH_DEFINES
 #include "../core/PhysiCell.h"
 #include "../modules/PhysiCell_standard_modules.h" 
-// #include "fast_marching_method.hpp"
+#include <vector>
+#include <string>
 
 using namespace BioFVM; 
 using namespace PhysiCell;
 
-// setup functions to help us along 
+// -------------------------------------------------------------
+// Global Variables (Defined in custom.cpp)
+// -------------------------------------------------------------
+extern std::vector<std::vector<double>> boundary_membrane_pts; 
+extern std::vector<double> initial_edge_length; 
+extern std::vector<std::vector<double>> initial_node_positions; 
 
+extern int BM_Fx_idx, BM_Fy_idx, BM_k_idx, BM_px_idx, BM_py_idx, BM_t_idx;
+
+extern std::vector<std::vector<double>> level_set_phi; 
+extern double ls_dx, ls_dy;
+extern double ls_xmin, ls_ymin;
+
+extern void (*test_perb)(std::vector<std::pair<double,double>>&, double);
+
+// -------------------------------------------------------------
+// Core PhysiCell Setup Functions
+// -------------------------------------------------------------
 void create_cell_types( void );
 void setup_tissue( void ); 
-
-// set up the BioFVM microenvironment 
 void setup_microenvironment( void ); 
 
-// custom pathology coloring function 
-
-std::vector<std::string> my_coloring_function( Cell* );
-
-// custom functions can go here 
-
+// -------------------------------------------------------------
+// Custom Cell Rules & Phenotype
+// -------------------------------------------------------------
+void custom_rule( Cell* pCell, Phenotype& phenotype, double dt );
+std::vector<std::string> my_coloring_function( Cell* pCell );
 void phenotype_function( Cell* pCell, Phenotype& phenotype, double dt );
 void custom_function( Cell* pCell, Phenotype& phenotype , double dt );
-
 void contact_function( Cell* pMe, Phenotype& phenoMe , Cell* pOther, Phenotype& phenoOther , double dt ); 
 
-// functions for the duct
-
-double distance_to_membrane(Cell* pCell, Phenotype& phenotype, double dt);
-void basement_membrane_interaction(Cell* pCell, Phenotype& phenotype, double dt);
-
-// Global variables for the Level Set Method
-static std::vector<std::vector<double>> level_set_phi; 
-static double ls_dx = 0.0, ls_dy = 0.0;
-static double ls_xmin = 0.0, ls_ymin = 0.0;
-
-extern std::vector<std::vector<double>> boundary_membrane_pts; // Boundary points for the basement membrane
-extern std::vector<double> initial_edge_length; // Precomputed edge lengths for spring forces
-extern std::vector<std::vector<double>> initial_node_positions; // Precomputed initial node positions
-
-void update_basement_membrane_deformation2(double dt);
-
-//___________________________________________________________________________
-
-
-
+#endif

@@ -66,19 +66,24 @@
 */
 
 #include "./custom.h"
-#include "./Models.h"
+#include "./Membrane.h"
+#include "./Geometry.h"
 #include "./Utils.h"
 #include "./Tests.h"
 #include <cmath>
 #include <cfloat>
 #include <array>
+#include <iostream>
 
 std::vector<std::vector<double>> boundary_membrane_pts;
 std::vector<double> initial_edge_length; 
 std::vector<std::vector<double>> initial_node_positions; 
 
-int BM_Fx_idx, BM_Fy_idx, BM_k_idx, BM_px_idx, BM_py_idx, BM_t_idx;
+std::vector<std::vector<double>> level_set_phi; 
+double ls_dx = 0.0, ls_dy = 0.0;
+double ls_xmin = 0.0, ls_ymin = 0.0;
 
+int BM_Fx_idx, BM_Fy_idx, BM_k_idx, BM_px_idx, BM_py_idx, BM_t_idx;
 void (*test_perb)(std::vector<std::pair<double,double>>&, double) = nullptr;
 
 
@@ -87,303 +92,7 @@ void (*test_perb)(std::vector<std::pair<double,double>>&, double) = nullptr;
 // Testing functions for membrane interactions based on cell centers (not voxel-based)
 // ________________________________________________________________________________________________________________________
 
-// ################ Function that computes the BM-to-Cell force ####################
-std::pair<double,double> basement_membrane_interactions_cc(Cell* pCell, double de, double px, double py)
-{
-    double cell_x = pCell->position[0];
-    double cell_y = pCell->position[1];
 
-	// if (de > 0) {
-
-	// 	return {0.0, 0.0}; // Remove deformation if cells pass through boundary
-    // }
-
-    double BM_deadzone = parameters.doubles("membrane_deadzone");
-    if (fabs(de) < BM_deadzone) return {0.0, 0.0};
-
-    double L = parameters.doubles("membrane_interaction_length");
-    if (fabs(de) >= L) return {0,0};
-
-    double strength = parameters.doubles("membrane_spring_constant"); 
-    double mag = strength * fabs(de);  // Hooke's law, F = kx
-
-    double nx = px - cell_x; // Normal vector from cell to boundary
-    double ny = py - cell_y;
-    double norm = sqrt(nx * nx + ny * ny);
-	
-    if (norm > 0) { nx /= norm; ny /= norm; }
-
-	// mag = parameters.doubles("test_velocity_magnitude");
-    double Fx =  mag * nx;  // Force components: Hookean force applied in the normal direction
-    double Fy =  mag * ny;
-
-    return {Fx, Fy};
-}
-
-// ################### Function that implements Cell-to-BM force ####################
-void cell_interactions_cc(Cell* pCell,
-                                   Phenotype& phenotype,
-                                   double dt)
-{
-    double cell_x = pCell->position[0];
-    double cell_y = pCell->position[1];
-
-    auto [dist, px, py, k, t] = project_point_onto_boundary(cell_x, cell_y);
-
-    bool inside = is_inside(cell_x, cell_y, boundary_membrane_pts);
-    double d = inside ? -dist : dist;
-
-    double R = pCell->phenotype.geometry.radius;
-    double de = d - (d < 0 ? -R : R);
-
-    auto cell_force = basement_membrane_interactions_cc(pCell, de, px, py);
-    pCell->custom_data[BM_Fx_idx] = cell_force.first;
-    pCell->custom_data[BM_Fy_idx] = cell_force.second;
-    pCell->custom_data[BM_k_idx] = k;
-    pCell->custom_data[BM_px_idx] = px;
-    pCell->custom_data[BM_py_idx] = py;
-    pCell->custom_data[BM_t_idx] = t;
-
-    // --- quick type check ---
-    std::string cell_name = cell_definitions_by_index[pCell->type]->name;
-    bool isCAF = (cell_name == "CAF");
-    bool isEP  = (cell_name == "Epithelial");
-
-    if (isEP)
-    {
-        
-        // Implement replusion here (original EP behavior)
-        if (de > 0)
-        {
-            double cell_deadzone = parameters.doubles("cell_deadzone");
-            double displacement_needed = de + cell_deadzone; // Make cells only move to deadzone
-
-            double nx = cell_x - px; // away from boundary
-            double ny = cell_y - py;
-            double norm = sqrt(nx * nx + ny * ny);
-            if (norm > 1e-16)
-            {
-                nx /= norm;
-                ny /= norm;
-            }
-
-            // Calculate the mag of the corrective velocity
-            double correction_rate = parameters.doubles("membrane_correction_rate");
-            double mag = correction_rate * displacement_needed;
-
-            pCell->velocity[0] += mag * nx;
-            pCell->velocity[1] += mag * ny;
-        }
-        else
-        {
-            double L = parameters.doubles("membrane_interaction_length");
-            if (fabs(de) >= L) return;
-
-            double cell_deadzone = parameters.doubles("cell_deadzone");
-            if (fabs(de) < cell_deadzone) return;
-
-            double strength = parameters.doubles("membrane_adhesion_strength");
-            double mag = strength * fabs(de);
-
-            double nx = px - cell_x;
-            double ny = py - cell_y;
-            double norm = sqrt(nx * nx + ny * ny);
-            if (norm > 0)
-            {
-                nx /= norm;
-                ny /= norm;
-            }
-
-            pCell->velocity[0] += mag * nx;
-            pCell->velocity[1] += mag * ny;
-        }
-
-        return;
-    }
-
-    // --- CAF: treat de < 0 as penetration (they were outside originally) ---
-    if (isCAF)
-    {
-
-        if(parameters.doubles("is_lumenal_pressure") == 1){
-            // Calculate normalized outward vector for lumenal pressure
-            double nx_out = px - cell_x;
-            double ny_out = py - cell_y;
-            double norm_out = sqrt(nx_out * nx_out + ny_out * ny_out);
-            
-            if (norm_out > 1e-16)
-            {
-                nx_out /= norm_out;
-                ny_out /= norm_out;
-            }
-
-            // double pressure_mag = parameters.doubles("lumenal_pressure_strength");
-            // // Apply constant lumenal pressure outward
-            // pCell->velocity[0] += pressure_mag * nx_out;
-            // pCell->velocity[1] += pressure_mag * ny_out;
-
-            // Apply a progressive lumenal pressure
-            // 2. Scale the pressure based on depth into the lumen
-            // If 'de' is highly negative when deep in the lumen, we use fabs(de)
-            // We can optionally divide by a 'max_lumen_radius' to normalize it between 0 and 1
-            
-            double pressure_base_mag = parameters.doubles("lumenal_pressure_strength");
-            
-            // Only apply outward pressure to cells that have detached/stratified (de < 0)
-            if (de < 0) 
-            {
-                // The further into the lumen, the higher the outward push
-                double depth_scale = fabs(de); 
-                double applied_pressure = pressure_base_mag * depth_scale;
-
-                pCell->velocity[0] += applied_pressure * nx_out;
-                pCell->velocity[1] += applied_pressure * ny_out;
-            }
-        }
-
-        if (de >0)
-        {
-            double cell_deadzone = parameters.doubles("cell_deadzone");
-            double displacement_needed = fabs(de) + cell_deadzone; // move out to deadzone
-
-            double nx = cell_x - px; // away from boundary
-            double ny = cell_y - py;
-            double norm = sqrt(nx * nx + ny * ny);
-            if (norm > 1e-16)
-            {
-                nx /= norm;
-                ny /= norm;
-            }
-
-            double correction_rate = parameters.doubles("membrane_correction_rate");
-            double mag = correction_rate * displacement_needed;
-
-            pCell->velocity[0] += mag * nx;
-            pCell->velocity[1] += mag * ny;
-        }
-        else
-        {
-            // same adhesion behavior as EPs when not "inside"
-            double L = parameters.doubles("membrane_interaction_length");
-            if (fabs(de) >= L) return;
-
-            double cell_deadzone = parameters.doubles("cell_deadzone");
-            if (fabs(de) < cell_deadzone) return;
-
-            double strength = parameters.doubles("membrane_adhesion_strength");
-            double mag = strength * fabs(de);
-
-            double nx = px - cell_x;
-            double ny = py - cell_y;
-            double norm = sqrt(nx * nx + ny * ny);
-            if (norm > 0)
-            {
-                nx /= norm;
-                ny /= norm;
-            }
-
-            pCell->velocity[0] += mag * nx;
-            pCell->velocity[1] += mag * ny;
-        }
-
-        return;
-    }
-
-    // For other cell types: do nothing (or keep behavior by removing this return)
-    return;
-}
-
-void update_basement_membrane_deformation2(double dt)
-{
-    int Np = (int)boundary_membrane_pts.size();
-    std::vector<std::pair<double,double>> node_forces(Np, {0.0, 0.0});
-
-    // Iterate over all cells and compute membrane forces distributed by Gaussian
-    for (Cell* pCell : *all_cells) {
-
-        double Fx_cell = pCell->custom_data[BM_Fx_idx];
-        double Fy_cell = pCell->custom_data[BM_Fy_idx];
-
-        if (Fx_cell == 0.0 && Fy_cell == 0.0) continue;
-
-        double Fx_BM = -Fx_cell;   
-        double Fy_BM = -Fy_cell;
-
-        // Consume the cached projection data
-        double best_k_d = pCell->custom_data[BM_k_idx];
-        double best_px = pCell->custom_data[BM_px_idx];
-        double best_py = pCell->custom_data[BM_py_idx];
-        double best_t = pCell->custom_data[BM_t_idx];
-		int best_k = static_cast<int>(std::round(best_k_d));
-
-        if (parameters.doubles("is_gaussian_smoothing") == 1) BM_Smoothing(node_forces, Fx_BM, Fy_BM, best_k, best_px, best_py, best_t);
-		else{
-
-        // Direct Local Force Transfer (No Smoothing) 
-        int k1 = best_k;
-        int k2 = (best_k + 1) % Np;
-
-        // We distribute the force to the two segment endpoints based on this distance.
-        node_forces[k1].first  += Fx_BM * (1.0 - best_t);
-        node_forces[k1].second += Fy_BM * (1.0 - best_t);          // best_t (0.0 to 1.0) represents where on the segment the cell projects.
-
-
-        node_forces[k2].first  += Fx_BM * best_t;
-        node_forces[k2].second += Fy_BM * best_t;
-        }
-	}
-
-	// Enforcing membrane elasticity between node pairs
-    if(parameters.doubles("is_strain_lin")==1) membrane_strain_lin(node_forces);
-    else membrane_strain_exp(node_forces);
-
-    if(parameters.doubles("is_bending_stiffness")==1) membrane_bending_stiffness(node_forces);
-
-	// Establishing membrane "memory" or "home" force, keeping the membrane from deforming inwards too much
-    if(parameters.doubles("is_restore_lin")==1) membrane_restoring_force_lin(node_forces);
-    else membrane_restoring_force_exp(node_forces);
-
-    ///_________
-    // Put Membrane Test Functions Here
-
-    if (test_perb != nullptr){
-        test_perb(node_forces, PhysiCell_globals.current_time);
-    }
-
-	// Update node positions
-    for (int i = 0; i < Np; ++i) {
-        boundary_membrane_pts[i][0] += node_forces[i].first  * dt;
-        boundary_membrane_pts[i][1] += node_forces[i].second * dt;
-    }
-
-    if (parameters.doubles("is_add_membrane_nodes") == 1) add_membrane_nodes();
-
-    // Rebuild signed distance field after modifications
-    rebuild_signed_distance_field();
-}
-
-// TODO CLEAN: MOVE TO UTILS
-void clustered_cell(double a, double b, double amp, int freq, int num_points, double center_x, double center_y, double radius, std::string type)
-{
-	Cell_Definition* pBM_def = cell_definitions_by_name[type];   //cell_definitions_by_name[ type_name ] = pCD; 
-	std::cout << "Creating clustered BM cells..." << std::endl;
-	std::vector<std::vector<double>> pts;
-	pts.reserve(num_points);
-
-
-    for (int j = 0; j < num_points; j++) {
-        // Place cells randomly within a disc for a more real look
-        double r = radius * sqrt(UniformRandom()); // sqrt for uniform area distribution
-        double theta = 2.0 * M_PI * UniformRandom();
-        
-        double cx = center_x + r * cos(theta);
-        double cy = center_y + r * sin(theta);
-        
-        Cell* pC2 = create_cell(*pBM_def);
-        pC2->assign_position({cx, cy, 0.0}); 
-    }
-
-}
 
 // ________________________________________________________________________________________________________________________
 //_________________________________________________________________________________________________________________________
@@ -466,8 +175,6 @@ void create_cell_types( void )
 		pDef->functions.calculate_distance_to_membrane = distance_to_membrane;
 	}
 
-
-	
 	/*
 	   This intializes cell signal and response dictionaries 
 	*/
