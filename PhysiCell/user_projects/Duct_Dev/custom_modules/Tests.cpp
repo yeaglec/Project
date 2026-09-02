@@ -355,3 +355,65 @@ void Test_Remesh_Pert(std::vector<std::pair<double,double>>& node_forces, double
         next_log_time += 40.0;
     }
 }
+
+// ________________________________________________________________________________________________________________________
+// Kernel Test: 
+// Test Gaussian kernel's node-distribution in isolation
+// Node spacing ~3.8 microns (250 nodes / 150-micron radius) 
+// ________________________________________________________________________________________________________________________
+
+void Test_KernelCell() {
+    std::cout << "Initializing Kernel Cell Test..." << std::endl;
+    boundary_membrane_pts.clear();
+
+    const int Np = 100;
+    const double radius = 150;
+
+    for (int i = 0; i < Np; ++i) {
+        double theta = (2.0 * M_PI * i) / Np;
+        boundary_membrane_pts.push_back({radius * std::cos(theta), radius * std::sin(theta), 0.0});
+    }
+
+    // Required for strain/bending/restoring forces to have valid rest lengths
+    initial_edge_length.resize(Np);
+    initial_node_positions.resize(Np);
+    for (int i = 0; i < Np; ++i) {
+        initial_node_positions[i] = boundary_membrane_pts[i];
+        int next = (i + 1) % Np;
+        double dx = boundary_membrane_pts[next][0] - boundary_membrane_pts[i][0];
+        double dy = boundary_membrane_pts[next][1] - boundary_membrane_pts[i][1];
+        initial_edge_length[i] = std::sqrt(dx * dx + dy * dy);
+    }
+
+
+    std::cout << "[Kernel Cell Test] Ring: " << Np << " nodes, radius " << radius
+               << " | Cell at (135, 0), initial gap ~6.6 microns" << std::endl;
+}
+
+void Test_KernelCell_Log(std::vector<std::pair<double,double>>& node_forces, double current_time) {
+    // Pure diagnostic logger -- injects no force. 
+    (void)node_forces;
+    int Np = (int)boundary_membrane_pts.size();
+    if (Np == 0) return;
+
+    static double next_log_time = 0.0;
+    if (current_time < next_log_time) return;
+    next_log_time += 100.0;
+
+    double min_r = 1e9;
+    int min_idx = -1;
+    for (int i = 0; i < Np; ++i) {
+        double x = boundary_membrane_pts[i][0];
+        double y = boundary_membrane_pts[i][1];
+        double r = std::sqrt(x * x + y * y);
+        if (r < min_r) { min_r = r; min_idx = i; }
+    }
+
+    const double home_r = 150.0; // matches Test_KernelCell's starting radius
+    std::cout << std::fixed << std::setprecision(3)
+              << "[Kernel Cell Test] t=" << current_time
+              << " | closest node idx=" << min_idx
+              << " | radius=" << min_r
+              << " | indentation=" << (home_r - min_r)
+              << std::endl;
+}

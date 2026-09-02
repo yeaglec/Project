@@ -31,4 +31,7 @@ void Test_Bending_Pert(std::vector<std::pair<double,double>>& node_forces, doubl
 void Test_Remesh();
 void Test_Remesh_Pert(std::vector<std::pair<double,double>>& node_forces, double current_time);
 
+void Test_KernelCell();
+void Test_KernelCell_Log(std::vector<std::pair<double,double>>& node_forces, double current_time);
+
 #endif
