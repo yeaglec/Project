@@ -1,0 +1,68 @@
+# Computational Complexity of the Basement-Membrane Coupling: Diagnosis and a Literature-Backed Fix
+
+*Prepared for the Pancreatic Ductal Modeling project — analysis of `custom_modules/{Membrane,Geometry}.cpp`*
+
+## 1. Where the cost actually lives
+
+You framed this as "the main loop is O(M×N)," and that's right — but reading through `Membrane.cpp` and `Geometry.cpp`, it's worth being precise about *which* loop, because there are two of them, and the second is probably the more expensive one at the grid resolutions you'll eventually want.
+
+**Loop A — per-cell nearest-point query.** `cell_interactions_cc()` runs once per epithelial/CAF cell, every mechanics time step (it's wired in as `add_cell_basement_membrane_interactions`). Inside it, `project_point_onto_boundary(x, y)` does a brute-force scan over every one of the `Np` membrane segments to find the closest one, and `is_inside()` does another full scan of all `Np` edges via ray casting. So this loop costs O(N_cells × N_membrane_nodes) per mechanics step — this is the "M×N" you mentioned.
+
+**Loop B — the level-set rebuild.** `update_basement_membrane_deformation()` calls `rebuild_signed_distance_field()` on *every step*, and that function loops over every voxel of the level-set grid (`Nx × Ny` of them) and, for each voxel, calls `project_point_onto_boundary` again — another full O(Np) scan. That's O(N_voxels × N_membrane_nodes) per step. Depending on how fine your level-set mesh is relative to your cell count, this can dominate Loop A by a wide margin — a 200×200 grid is 40,000 query points, likely more than your cell count for a long while.
+
+Both loops are doing the same underlying operation: *given a query point, find the closest point on a moving polyline (the membrane) and the identity of the segment it lies on.* That's the operation to accelerate. Fixing it once, well, kills both loops.
+
+## 2. What kind of problem this is
+
+Formally, this is a **repeated nearest-feature (proximity) query against a deforming piecewise-linear curve** — you have a set of query points (cell centers, or grid voxel centers) that needs, every step, the closest point on a 1-D curve embedded in 2-D, plus which segment it fell on (for the force-splitting weights). This shows up under different names in different literatures, and each one hands you a ready-made, well-validated algorithm:
+
+- **Particle simulation / molecular dynamics:** this is exactly the *neighbor-search problem*. When interactions have a finite cutoff radius (yours do — `membrane_interaction_length`, `cell_deadzone`), the textbook answer since the 1960s–70s is the **cell list / linked-cell method** (Quentrec & Brot) or the **Verlet neighbor list** (with a "skin" distance so the list doesn't need rebuilding every step) — both turn O(N×M) into O(N + M) by only ever comparing a query point against the handful of segments that share, or neighbor, its spatial bin ([Verlet list — Wikipedia](https://en.wikipedia.org/wiki/Verlet_list); [Improved neighbor list algorithm in molecular simulations using cell decomposition, Computer Physics Communications](https://www.sciencedirect.com/science/article/abs/pii/S0010465504002097)).
+
+- **This is not a hypothetical fix for your codebase — PhysiCell already uses it internally.** `PhysiCell_cell_container.cpp` bins every agent into an `agent_grid` keyed by mesh voxel, and cell-cell mechanics only ever checks a cell against agents in its own voxel and the immediate neighbor voxels — precisely the cell-list idiom, and the code comments there note explicitly that without it, cost "increase[s] at polynomial rate VERY fast" ([PhysiCell_cell_container.cpp, MathCancer/PhysiCell](https://github.com/MathCancer/PhysiCell/blob/master/core/PhysiCell_cell_container.cpp); [Ghaffarizadeh et al. 2018, PLOS Comput. Biol.](https://journals.plos.org/ploscompbiol/article?id=10.1371%2Fjournal.pcbi.1005991)). Your framework can bin the membrane's segments the same way, using the same mesh you already carry (`ls_dx`, `ls_dy`) — so the fix is idiomatically consistent with the engine you're extending, not a foreign import.
+
+- **Interface tracking / level-set methods:** Loop B's job — recomputing a signed distance field over a grid from a moving interface — is a named, solved problem there called **reinitialization** or **redistancing**. The standard algorithms are the **Fast Marching Method** (Sethian, 1996) and the **Fast Sweeping Method** (Zhao, 2004/2005), which compute the *entire* grid's distance field in O(N_voxels log N_voxels) and O(N_voxels) respectively — not O(N_voxels × N_segments) — by propagating distance information outward from the interface via a numerical solve of the eikonal equation |∇φ| = 1, rather than by brute-force projection at every voxel ([Sethian, *Fast Marching Methods*, SIAM Review](https://epubs.siam.org/doi/10.1137/S0036144598347059); [Zhao, *A fast sweeping method for eikonal equations*, Math. Comp.](https://www.math.uci.edu/~zhao/homepage/research_files/FSM.pdf)). Worth flagging directly: **`custom_modules/fast_marching_method.hpp` is already sitting in your repo, unused** — you appear to have anticipated needing this and just haven't wired it in yet.
+
+- **Computational geometry, more generally:** point-to-polyline nearest-feature queries are also solvable with spatial trees (KD-tree, bounding-volume hierarchy) in O(log M) per query, and the closely related *closest-point transform* — computing not just distance but the identity of the nearest boundary feature at every grid point in near-linear time — is exactly what you need to also recover `best_k`/`best_t` cheaply for the force-splitting step ([Mauch, *A Fast Algorithm for Computing the Closest Point and Distance Transform*](https://www.researchgate.net/publication/2393786_A_Fast_Algorithm_for_Computing_the_Closest_Point_and_Distance_Transform); for the pure-Euclidean-distance-transform case, [Felzenszwalb & Huttenlocher, *Distance Transforms of Sampled Functions*](https://cs.brown.edu/people/pfelzens/papers/dt-final.pdf)).
+
+So: two literatures, two loops, two matched fixes — and they compose into one design.
+
+## 3. The fix, matched to each loop
+
+**For Loop A (per-cell queries): a cell list over the membrane segments.**
+Bin the `Np` boundary segments into a uniform grid — reuse `ls_dx`/`ls_dy`, or a coarser grid sized to `membrane_interaction_length` (`L`). Each cell only checks segments in its own bin and the 1-ring of neighbor bins. Because your force laws have a hard cutoff at `L` (`BM_deadzone`, `cell_deadzone`, `L` all gate the force to a finite range already), this is **not an approximation** — as long as bin width ≥ `L`, any segment farther than one bin away provably cannot be the closest one within range, so the answer is identical to brute force, just found faster. Rebuilding the bin assignment costs O(Np) per step (cheap — you're only re-binning membrane nodes, not doing an M×N comparison), and the query itself becomes O(1) amortized per cell, so the whole loop drops to O(N_cells + N_membrane_nodes).
+
+**For Loop B (the level-set rebuild): fast marching or fast sweeping, restricted to a narrow band.**
+Replace the brute-force double loop in `rebuild_signed_distance_field()` with your existing (currently unused) `fast_marching_method.hpp`, or a fast-sweeping pass. Two refinements matter for both speed and correctness:
+- *Seed the interface voxels exactly.* FMM/FSM need accurate distance values at grid points immediately adjacent to the interface to start the propagation — this is exactly what `project_point_onto_boundary` already computes correctly for those few voxels. Use the exact brute-force projection only in a thin band of voxels touching the membrane, then let FMM/FSM propagate outward from there. This preserves the sub-grid accuracy you already have near the membrane, where the forces actually care about it.
+- *Only maintain a narrow band, not the whole grid.* Your force laws only ever consume `φ` within a few multiples of `L` of the membrane (`distance_to_membrane`, the deadzone checks). Cells or voxels farther away don't need an accurate `φ` at all. The level-set literature calls this the **narrow-band method** (Peng et al., 1999, building on Adalsteinsson & Sethian's narrow-band level-set work) — restricting the expensive PDE solve to a band of voxels near the zero level set, rather than the full `Nx × Ny` domain, which is a further large constant-factor (often order-of-magnitude) win on top of switching algorithms, with zero accuracy cost since the far field was never used.
+
+**A further consolidation worth considering once both are in place.** Right now Loops A and B redundantly discover the same geometric information — nearest point and segment index — twice, via two different code paths. If you extend the SDF rebuild into a *closest-point transform* (store the nearest segment index alongside `φ` at every voxel, which FMM/FSM naturally support since they propagate from known interface points), then `cell_interactions_cc` no longer needs to call `project_point_onto_boundary` at all — it just bilinearly interpolates `φ` and the segment-index field at the cell's position. That removes Loop A entirely rather than just accelerating it, at the cost of accepting grid-resolution accuracy instead of exact projection for the cell force (a trade you already implicitly accept for `distance_to_membrane`, which already reads off the grid). This is an optional Phase 3 — start with the two independent fixes above, which are lower-risk and easier to validate in isolation.
+
+## 4. Keeping accuracy honest while you do this
+
+Two concrete traps to avoid, both well-documented in the source literature above:
+
+- **Bin size vs. interaction length.** The cell-list fix is exact only if the bin width is at least as large as your largest interaction cutoff (`L`, plus a small safety margin if you want to avoid rebinning every single step). If you ever increase `membrane_interaction_length` in a parameter sweep without also widening the bins, you'll silently start missing valid interactions — worth asserting in code rather than trusting by convention.
+- **FMM/FSM give you a numerically-solved distance field, not an exact one, away from the interface.** That's fine — your current brute-force rebuild is *also* only exact at voxel centers and already limited by grid resolution — but it means the accuracy ceiling is set by `ls_dx`/`ls_dy`, not by which algorithm computes `φ`. Switching to FMM/FSM changes complexity, not fidelity, provided you seed the near-interface band exactly as described above.
+
+**Validation plan.** You're already at a model-evaluation stage with a separate PCMM pipeline (`GenerateReport.jl`, the descriptor tests in `Tests/`) — that's the right instrument to use here too, not a new one. Before touching production code, run the existing brute-force version and the accelerated version on the same fixed small test case (few cells, few membrane nodes, deterministic seed) and diff `boundary_membrane_pts` trajectory step-by-step. You should see agreement to floating-point tolerance for the Loop A fix (it's exact), and agreement to grid-resolution tolerance for the Loop B fix (bounded by the narrow-band seeding accuracy) — if either diverges further than that, the acceleration introduced a bug, not just a speed difference. This regression check costs little and gives you a clean, reusable way to sign off on further performance work later.
+
+## 5. Suggested order of work
+
+1. **Cell-list bin the membrane segments for Loop A.** Highest ROI, lowest risk, exact (no accuracy trade), and directly mirrors PhysiCell's own `agent_grid` pattern — so it's the natural place to start and the easiest to review.
+2. **Swap the level-set rebuild to FMM/FSM with narrow-band seeding for Loop B.** Larger engineering lift (you already have the FMM header; it just needs to be wired to your segment representation and combined with band restriction), but likely the larger win at realistic grid resolutions.
+3. **(Optional) Merge into a single closest-point-transform pass** once 1 and 2 are validated independently, eliminating the redundant geometry work between the two loops.
+
+---
+
+**Sources**
+
+- [PhysiCell_cell_container.cpp — MathCancer/PhysiCell](https://github.com/MathCancer/PhysiCell/blob/master/core/PhysiCell_cell_container.cpp)
+- [Ghaffarizadeh et al., "PhysiCell: An open source physics-based cell simulator for 3-D multicellular systems," PLOS Comput. Biol. 14(2): e1005991, 2018](https://journals.plos.org/ploscompbiol/article?id=10.1371%2Fjournal.pcbi.1005991)
+- [Verlet list — Wikipedia](https://en.wikipedia.org/wiki/Verlet_list)
+- [Yao, Guo, Muhammad, "Improved neighbor list algorithm in molecular simulations using cell decomposition and data sorting method," Computer Physics Communications, 2004](https://www.sciencedirect.com/science/article/abs/pii/S0010465504002097)
+- [Sethian, "Fast Marching Methods," SIAM Review 41(2), 1999](https://epubs.siam.org/doi/10.1137/S0036144598347059)
+- [Sethian, *Level Set Methods and Fast Marching Methods* (Cambridge, 1999)](https://books.google.com/books/about/Level_Set_Methods_and_Fast_Marching_Meth.html?id=ErpOoynE4dIC)
+- [Zhao, "A fast sweeping method for eikonal equations," Mathematics of Computation 74, 2005](https://www.math.uci.edu/~zhao/homepage/research_files/FSM.pdf)
+- [Mauch, "A Fast Algorithm for Computing the Closest Point and Distance Transform"](https://www.researchgate.net/publication/2393786_A_Fast_Algorithm_for_Computing_the_Closest_Point_and_Distance_Transform)
+- [Felzenszwalb & Huttenlocher, "Distance Transforms of Sampled Functions," Cornell CS TR2004-1963](https://cs.brown.edu/people/pfelzens/papers/dt-final.pdf)

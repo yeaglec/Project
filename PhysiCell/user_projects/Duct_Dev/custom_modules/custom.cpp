@@ -258,45 +258,47 @@ void setup_tissue( void )
     // Placing cells to test the basement membrane deformation
 	// Example code for generating a arbitrary boundary
 
-	int num_points = parameters.ints("membrane_num_points");
-	double a = 300.0, b = 250.0;
-	double amp = 0.1;              // Amplitude of deformation
-	int freq = 4;  
-	int num_ep = parameters.ints("number_EP_cells");
+	// int num_points = parameters.ints("membrane_num_points");
+	// double a = 300.0, b = 250.0;
+	// double amp = 0.1;              // Amplitude of deformation
+	// int freq = 4;  
+	// int num_ep = parameters.ints("number_EP_cells");
 
-	boundary_membrane_pts = generate_boundary_shape(a, b, amp, freq);
-	double ep_dis = parameters.doubles("ep_displacement");
-	generate_boundary_cells(a, b, amp, freq, "Epithelial", ep_dis, num_ep);
+	// boundary_membrane_pts = generate_boundary_shape(a, b, amp, freq);
+	// double ep_dis = parameters.doubles("ep_displacement");
+	// generate_boundary_cells(a, b, amp, freq, "Epithelial", ep_dis, num_ep);
 
-	int num_caf = parameters.ints("number_CAF_cells");
-	// Cell_Definition* Caf_def = cell_definitions_by_index[2];
-	// Cell* Caf = create_cell( *Caf_def );
-	// Caf->assign_position( { 225,200, 0.0 } );
+	// int num_caf = parameters.ints("number_CAF_cells");
+	// // Cell_Definition* Caf_def = cell_definitions_by_index[2];
+	// // Cell* Caf = create_cell( *Caf_def );
+	// // Caf->assign_position( { 225,200, 0.0 } );
 
-	double CAFx = parameters.doubles("CAFx");
-	double CAFy = parameters.doubles("CAFy");
+	// double CAFx = parameters.doubles("CAFx");
+	// double CAFy = parameters.doubles("CAFy");
 
-	double EPx = parameters.doubles("EPx");
-	double EPy = parameters.doubles("EPy");
+	// double EPx = parameters.doubles("EPx");
+	// double EPy = parameters.doubles("EPy");
 
-	double CAF_rad = parameters.doubles("CAF_rad");
-	double EP_rad = parameters.doubles("EP_rad");
+	// double CAF_rad = parameters.doubles("CAF_rad");
+	// double EP_rad = parameters.doubles("EP_rad");
 
-	generate_boundary_cells(a, b, amp, freq, "CAF", -5, num_caf);
-  	// Cell_Definition* pTumorDef = cell_definitions_by_name["CAF"];
-	// Cell* Caf = create_cell( *pTumorDef );
-	// Caf->assign_position( { 10,10, 0.0 } );
+	// generate_boundary_cells(a, b, amp, freq, "CAF", -5, num_caf);
+  	
 
     // _____________ TESTING  Triangle Membrane Elasticity and Restoring Force __________________
 
-	// int num_caf = parameters.ints("number_CAF_cells");
-	// Cell_Definition* Caf_def = cell_definitions_by_index[2];  // Need at least 1 cell or sim gets mad
-	// Cell* Caf = create_cell( *Caf_def );
-	// Caf->assign_position( { 225,200, 0.0 } );
+	int num_caf = parameters.ints("number_CAF_cells");
+	Cell_Definition* Caf_def = cell_definitions_by_index[2];  // Need at least 1 cell or sim gets mad
+	Cell* Caf = create_cell( *Caf_def );
+	Caf->assign_position( { 120,0, 0.0 } );
+	// Caf->is_movable = false;
 
-    // // Put Test Functions Here
-    // Test_Ring();
-    // test_perb = nullptr;  //nullptr if not testing
+
+    // Put Test Functions Here
+   	Test_KernelCell();
+    test_perb = Test_KernelCell_Log;
+
+	
 
 	
 	// _____________ TESTING Membrane Elasticity and Restoring Force __________________

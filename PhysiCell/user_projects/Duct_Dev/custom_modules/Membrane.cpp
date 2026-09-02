@@ -147,7 +147,7 @@ void cell_interactions_cc(Cell* pCell, Phenotype& phenotype, double dt)
     
     // If within interaction range but outside deadzone, apply spring to membrane
     if (fabs(de) >= BM_deadzone && fabs(de) < L) {
-        double bm_mag = parameters.doubles("membrane_adhesion_strength") * fabs(de);  // Equal and opposite force on membrane
+        double bm_mag = parameters.doubles("membrane_spring_constant") * fabs(de);  // Equal and opposite force on membrane
         BM_Fx = bm_mag * nx;
         BM_Fy = bm_mag * ny;
     }
@@ -275,6 +275,8 @@ void update_basement_membrane_deformation(double dt)
 
 // Build Gaussian weights centered at projection point and distribute force 
 // Possible need to think about revising for effeciency 
+
+// Possible Rewrite: Number of membrane nodes effect distribution of force
 void BM_Smoothing(std::vector<std::pair<double,double>>& node_forces, double Fx_BM, double Fy_BM, int best_k, double best_px, double best_py, double best_t){
 
 		int Np = (int)boundary_membrane_pts.size();
@@ -360,7 +362,6 @@ void membrane_strain_lin(std::vector<std::pair<double,double>>& node_forces)
 
     int Np = (int)boundary_membrane_pts.size();
     double k = parameters.doubles("seg_lin");
-    double alpha = parameters.doubles("seg_exp");
     double max_force = 100.0; 
 
     for(int i=0; i<Np; ++i){
@@ -376,7 +377,7 @@ void membrane_strain_lin(std::vector<std::pair<double,double>>& node_forces)
         double x = current_length - rest_length;
         double F_mag = k * x;        // parameterize linear and exponetial cases 
         
-        if(F_mag > max_force) F_mag = max_force;
+        if(F_mag > max_force) F_mag = max_force;  // Safety cap for stability (may not be necessary)
         if(F_mag < -max_force) F_mag = -max_force;
 
         double nx = dx / current_length;
