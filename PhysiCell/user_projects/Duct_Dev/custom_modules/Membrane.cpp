@@ -209,6 +209,16 @@ void update_basement_membrane_deformation(double dt)
     int Np = (int)boundary_membrane_pts.size();
     std::vector<std::pair<double,double>> node_forces(Np, {0.0, 0.0});
 
+    // Current edge lengths, computed once per step
+    // NOTE: membrane_strain_lin()/membrane_strain_exp() recompute this same quantity
+    std::vector<double> edge_length(Np);
+    for (int i = 0; i < Np; ++i) {
+        int j = (i + 1) % Np;
+        double dx = boundary_membrane_pts[j][0] - boundary_membrane_pts[i][0];
+        double dy = boundary_membrane_pts[j][1] - boundary_membrane_pts[i][1];
+        edge_length[i] = std::sqrt(dx*dx + dy*dy);
+    }
+
     // Iterate over all cells and compute membrane forces distributed by Gaussian
     for (Cell* pCell : *all_cells) {
 
@@ -225,32 +235,23 @@ void update_basement_membrane_deformation(double dt)
         double best_px = pCell->custom_data[BM_px_idx];
         double best_py = pCell->custom_data[BM_py_idx];
         double best_t = pCell->custom_data[BM_t_idx];
-		int best_k = static_cast<int>(std::round(best_k_d));
+        int best_k = static_cast<int>(std::round(best_k_d));
 
-        if (parameters.doubles("is_gaussian_smoothing") == 1) BM_Smoothing(node_forces, Fx_BM, Fy_BM, best_k, best_px, best_py, best_t);
-		else{
-
-        // Direct Local Force Transfer (No Smoothing) 
-        int k1 = best_k;
-        int k2 = (best_k + 1) % Np;
-
-        // We distribute the force to the two segment endpoints based on this distance.
-        node_forces[k1].first  += Fx_BM * (1.0 - best_t);
-        node_forces[k1].second += Fy_BM * (1.0 - best_t);          // best_t (0.0 to 1.0) represents where on the segment the cell projects.
-
-
-        node_forces[k2].first  += Fx_BM * best_t;
-        node_forces[k2].second += Fy_BM * best_t;
+        if (parameters.doubles("is_gaussian_smoothing") == 1) {
+            BM_Smoothing(node_forces, Fx_BM, Fy_BM, best_k, best_px, best_py, best_t, edge_length);
+        } else {
+            // Direct Local Force Transfer (No Smoothing)
+            distribute_force_linear(node_forces, Fx_BM, Fy_BM, best_k, best_t);
         }
-	}
+    }
 
-	// Enforcing membrane elasticity between node pairs
+    // Enforcing membrane elasticity between node pairs
     if(parameters.doubles("is_strain_lin")==1) membrane_strain_lin(node_forces);
     else membrane_strain_exp(node_forces);
 
-    if(parameters.doubles("is_bending_stiffness")==1) membrane_bending_stiffness(node_forces);
+    if(parameters.doubles("is_bending_stiffness")==1) membrane_bending_stiffness(node_forces, edge_length);
 
-	// Establishing membrane "memory" or "home" force, keeping the membrane from deforming inwards too much
+    // Establishing membrane "memory" or "home" force, keeping the membrane from deforming inwards too much
     if(parameters.doubles("is_restore_lin")==1) membrane_restoring_force_lin(node_forces);
     else membrane_restoring_force_exp(node_forces);
 
@@ -261,7 +262,7 @@ void update_basement_membrane_deformation(double dt)
         test_perb(node_forces, PhysiCell_globals.current_time);
     }
 
-	// Update node positions
+    // Update node positions
     for (int i = 0; i < Np; ++i) {
         boundary_membrane_pts[i][0] += node_forces[i].first  * dt;
         boundary_membrane_pts[i][1] += node_forces[i].second * dt;
@@ -273,87 +274,97 @@ void update_basement_membrane_deformation(double dt)
     rebuild_signed_distance_field();
 }
 
-// Build Gaussian weights centered at projection point and distribute force 
-// Possible need to think about revising for effeciency 
+// Helper for splitting a force between the two endpoints of
+// segment [best_k, best_k+1] using the projection parameter t, clamped to
+// [0,1]
+void distribute_force_linear(std::vector<std::pair<double,double>>& node_forces,
+                              double Fx_BM, double Fy_BM, int best_k, double best_t)
+{
+    int Np = (int)boundary_membrane_pts.size();
+    int n1 = best_k;
+    int n2 = (best_k + 1) % Np;
+    double t_clamped = std::max(0.0, std::min(best_t, 1.0));
 
-// Possible Rewrite: Number of membrane nodes effect distribution of force
-void BM_Smoothing(std::vector<std::pair<double,double>>& node_forces, double Fx_BM, double Fy_BM, int best_k, double best_px, double best_py, double best_t){
+    node_forces[n1].first  += (1.0 - t_clamped) * Fx_BM;
+    node_forces[n1].second += (1.0 - t_clamped) * Fy_BM;
+    node_forces[n2].first  += t_clamped * Fx_BM;
+    node_forces[n2].second += t_clamped * Fy_BM;
+}
 
-		int Np = (int)boundary_membrane_pts.size();
-        double sumW = 0.0;
-		double sigma = parameters.doubles("membrane_force_smoothing_sigma"); // Smoothing parameter for Gaussian distribution
-		double cutoff = 3.0 * sigma;         // ignore nodes beyond 3 sigma 
-    
-        std::vector<int> nearby_indices;   // Try storing per-node weights only for nodes within cutoff
-        std::vector<double> nearby_weights;
-        nearby_indices.reserve(16);
-        nearby_weights.reserve(16);
+// Build Gaussian weights centered at projection point and distribute force,
+// weighted by each node's current tributary arc length 
 
-		if (sigma <= 0 || std::isnan(sigma)){
+// Possible Limitation: Currently uses Euclidean distance for simplicity, could cause issues
+// with highly curved membranes. Could be improved bounding the search by arc length along the current node ordering in addition to (or instead of) Euclidean cutoff.
+void BM_Smoothing(std::vector<std::pair<double,double>>& node_forces, double Fx_BM, double Fy_BM,
+                   int best_k, double best_px, double best_py, double best_t,
+                   const std::vector<double>& edge_length)
+{
+    int Np = (int)boundary_membrane_pts.size();
+    double sumW = 0.0;
+    double sigma = parameters.doubles("membrane_force_smoothing_sigma"); // Smoothing parameter for Gaussian distribution
+    double cutoff = 3.0 * sigma;         // ignore nodes beyond 3 sigma
 
-			// Revert to the original 2-node split based on projection t.
-            int n1 = best_k;
-            int n2 = (best_k + 1) % Np;
-            double t_clamped = std::max(0.0, std::min(best_t, 1.0));
-            node_forces[n1].first  += (1.0 - t_clamped) * Fx_BM;
-            node_forces[n1].second += (1.0 - t_clamped) * Fy_BM;
-            node_forces[n2].first  += (t_clamped) * Fx_BM;
-            node_forces[n2].second += (t_clamped) * Fy_BM;	
-			
-		}
+    std::vector<int> nearby_indices;   // Try storing per-node weights only for nodes within cutoff
+    std::vector<double> nearby_weights;
+    nearby_indices.reserve(16);
+    nearby_weights.reserve(16);
 
-		else{
-			// Start at best_k and go "left" (decreasing indices)
-			for (int step = 0; step < Np; ++step) {
-				int node_i = (best_k - step % Np + Np) % Np;
-				double dx = boundary_membrane_pts[node_i][0] - best_px;
-				double dy = boundary_membrane_pts[node_i][1] - best_py;
-				double dist2 = dx * dx + dy * dy;
-				if (dist2 > cutoff * cutoff) break; 
-				
-				double w = exp(-dist2 / (2.0 * sigma * sigma));
-				nearby_indices.push_back(node_i);
-				nearby_weights.push_back(w);
-				sumW += w;
-			}
-			
-			int num_left = nearby_indices.size();
-			// Start at best_k + 1 and go "right" (increasing indices)
-			for (int step = 1; step <= Np - num_left; ++step) {
-				int node_i = (best_k + step) % Np;
-				double dx = boundary_membrane_pts[node_i][0] - best_px;
-				double dy = boundary_membrane_pts[node_i][1] - best_py;
-				double dist2 = dx * dx + dy * dy;
-				if (dist2 > cutoff * cutoff) break; 
-				
-				double w = exp(-dist2 / (2.0 * sigma * sigma));
-				nearby_indices.push_back(node_i);
-				nearby_weights.push_back(w);
-				sumW += w;
-			}
+    if (sigma <= 0 || std::isnan(sigma)){
 
-			if (sumW > 0.0) {
-				// normalize weights and distribute
-				for (size_t idx = 0; idx < nearby_indices.size(); ++idx) {
-					int node_i = nearby_indices[idx];
-					double w = nearby_weights[idx];
-					double frac = w / sumW;
-					node_forces[node_i].first  += Fx_BM * frac;
-					node_forces[node_i].second += Fy_BM * frac;
-				}
-			} else {
-				// Fallback to 2-node split if no nodes were within cutoff
-				int n1 = best_k;
-				int n2 = (best_k + 1) % Np;
-				double t_clamped = std::max(0.0, std::min(best_t, 1.0));
-				node_forces[n1].first  += (1.0 - t_clamped) * Fx_BM;
-				node_forces[n1].second += (1.0 - t_clamped) * Fy_BM;
-				node_forces[n2].first  += (t_clamped) * Fx_BM;
-				node_forces[n2].second += (t_clamped) * Fy_BM;	
-			}
+        // Revert to the original 2-node split based on projection t.
+        distribute_force_linear(node_forces, Fx_BM, Fy_BM, best_k, best_t);
+
+    }
+
+    else{
+        // Start at best_k and go "left" (decreasing indices)
+        for (int step = 0; step < Np; ++step) {
+            int node_i = (best_k - step % Np + Np) % Np;
+            double dx = boundary_membrane_pts[node_i][0] - best_px;
+            double dy = boundary_membrane_pts[node_i][1] - best_py;
+            double dist2 = dx * dx + dy * dy;
+            if (dist2 > cutoff * cutoff) break;
+
+            // Tributary arc length for this node: half of each adjacent edge.
+            double ds_i = 0.5 * (edge_length[(node_i - 1 + Np) % Np] + edge_length[node_i]);
+            double w = exp(-dist2 / (2.0 * sigma * sigma)) * ds_i;
+            nearby_indices.push_back(node_i);
+            nearby_weights.push_back(w);
+            sumW += w;
         }
-    } 
 
+        int num_left = nearby_indices.size();
+        // Start at best_k + 1 and go "right" (increasing indices)
+        for (int step = 1; step <= Np - num_left; ++step) {
+            int node_i = (best_k + step) % Np;
+            double dx = boundary_membrane_pts[node_i][0] - best_px;
+            double dy = boundary_membrane_pts[node_i][1] - best_py;
+            double dist2 = dx * dx + dy * dy;
+            if (dist2 > cutoff * cutoff) break;
+
+            double ds_i = 0.5 * (edge_length[(node_i - 1 + Np) % Np] + edge_length[node_i]);
+            double w = exp(-dist2 / (2.0 * sigma * sigma)) * ds_i;
+            nearby_indices.push_back(node_i);
+            nearby_weights.push_back(w);
+            sumW += w;
+        }
+
+        if (sumW > 0.0) {
+            // normalize weights and distribute
+            for (size_t idx = 0; idx < nearby_indices.size(); ++idx) {
+                int node_i = nearby_indices[idx];
+                double w = nearby_weights[idx];
+                double frac = w / sumW;
+                node_forces[node_i].first  += Fx_BM * frac;
+                node_forces[node_i].second += Fy_BM * frac;
+            }
+        } else {
+            // Fallback to 2-node split if no nodes were within cutoff
+            distribute_force_linear(node_forces, Fx_BM, Fy_BM, best_k, best_t);
+        }
+    }
+}
 
 // Segment Elasticity: Add spring forces between adjacent nodes to maintain membrane integrity
 void membrane_strain_lin(std::vector<std::pair<double,double>>& node_forces)    
@@ -372,10 +383,11 @@ void membrane_strain_lin(std::vector<std::pair<double,double>>& node_forces)
 
         double current_length = sqrt(dx*dx + dy*dy);
         double rest_length = initial_edge_length[i];
-        if (current_length <= 1e-16) continue;         //physicell standard is 1e-16
+        if (current_length <= 1e-16 || rest_length <= 1e-16) continue;         //physicell standard is 1e-16
 
         double x = current_length - rest_length;
-        double F_mag = k * x;        // parameterize linear and exponetial cases 
+        // k  represents a resolution-independent material stiffness
+        double F_mag = (k / rest_length) * x;
         
         if(F_mag > max_force) F_mag = max_force;  // Safety cap for stability (may not be necessary)
         if(F_mag < -max_force) F_mag = -max_force;
@@ -408,10 +420,13 @@ void membrane_strain_exp(std::vector<std::pair<double,double>>& node_forces)
 
         double current_length = sqrt(dx*dx + dy*dy);
         double rest_length = initial_edge_length[i];
-        if (current_length <= 1e-16) continue;         //physicell standard is 1e-16
+        if (current_length <= 1e-16 || rest_length <= 1e-16) continue;         //physicell standard is 1e-16
 
         double x = current_length - rest_length;
-        double F_mag = k * (std::exp(alpha * x) - 1.0);        // parameterize linear and exponetial cases 
+        // Dimensionless strain, rather than raw absolute stretch so alpha
+        // stays a resolution-independent material parameter 
+        double strain = x / rest_length;
+        double F_mag = (k / rest_length) * (std::exp(alpha * strain) - 1.0);
         
         if(F_mag > max_force) F_mag = max_force;
         if(F_mag < -max_force) F_mag = -max_force;    // Force cap for stability
@@ -486,41 +501,62 @@ void membrane_restoring_force_exp(std::vector<std::pair<double,double>>& node_fo
     }
 }
 
-void membrane_bending_stiffness(std::vector<std::pair<double,double>>& node_forces)
+void membrane_bending_stiffness(std::vector<std::pair<double,double>>& node_forces,
+                                 const std::vector<double>& edge_length)
 {
     int Np = (int)boundary_membrane_pts.size();
-    double kb = parameters.doubles("membrane_bending_constant"); 
-	double max_force = 100.0;
+    double kb = parameters.doubles("membrane_bending_constant");
+    double max_force = 100.0;
 
     for (int i = 0; i < Np; ++i) {
         int prev_node = (i - 1 + Np) % Np;
         int next_node = (i + 1) % Np;
 
-        // Calculate the midpoint of the  neighbors
+        // Current local spacing on either side of node i.
+        double L1 = edge_length[prev_node];   // prev -> i
+        double L2 = edge_length[i];           // i -> next
+        if (L1 <= 1e-16 || L2 <= 1e-16) continue;
+
+        // Note: Relys on add_membrane_nodes to handle remeshing
+        double L1_rest = initial_edge_length[prev_node];
+        double L2_rest = initial_edge_length[i];
+        if (L1_rest <= 1e-16 || L2_rest <= 1e-16) continue;
+
+        // Deviation of node i from the midpoint of its current neighbors 
         double mid_x = 0.5 * (boundary_membrane_pts[prev_node][0] + boundary_membrane_pts[next_node][0]);
         double mid_y = 0.5 * (boundary_membrane_pts[prev_node][1] + boundary_membrane_pts[next_node][1]);
-
-        // Calculate the vector from the current node to that midpoint (the deviation)
         double dev_x = mid_x - boundary_membrane_pts[i][0];
         double dev_y = mid_y - boundary_membrane_pts[i][1];
 
-        // The bending force is proportional to this deviation
-        double F_bx = kb * dev_x;
-        double F_by = kb * dev_y;
+        // Same deviation, but for the INITIAL configuration (initial bend)
+        double rest_mid_x = 0.5 * (initial_node_positions[prev_node][0] + initial_node_positions[next_node][0]);
+        double rest_mid_y = 0.5 * (initial_node_positions[prev_node][1] + initial_node_positions[next_node][1]);
+        double rest_dev_x = rest_mid_x - initial_node_positions[i][0];
+        double rest_dev_y = rest_mid_y - initial_node_positions[i][1];
 
-		if(F_bx > max_force) F_bx = max_force;
-        if(F_bx < -max_force) F_bx = -max_force;    // Force cap for stability
-		if(F_by > max_force) F_by = max_force;
-        if(F_by < -max_force) F_by = -max_force;    // Force cap for stability
+        // Rescale to rest spacing since deviation shrinks with mesh refinement
+        double scale = (L1_rest * L2_rest) / (L1 * L2);
+
+        double F_bx = kb * (scale * dev_x - rest_dev_x);
+        double F_by = kb * (scale * dev_y - rest_dev_y);
+
+        double F_mag = std::sqrt(F_bx * F_bx + F_by * F_by);
+        if (F_mag > max_force) {
+            double clamp_scale = max_force / F_mag;
+            F_bx *= clamp_scale;
+            F_by *= clamp_scale;
+        }
 
         // Apply the restorative bending force to the current node
         node_forces[i].first  += F_bx;
         node_forces[i].second += F_by;
 
-        // Apply equal and opposite reaction forces to the neighbors 
+        // Apply equal and opposite reaction forces to the neighbors.
+        // NOTE: Consider a more rigorous discrete bending model would generally weight the two neighbors
+        // unequally when their adjacent edge lengths differ. 
         node_forces[prev_node].first  -= 0.5 * F_bx;
         node_forces[prev_node].second -= 0.5 * F_by;
-        
+
         node_forces[next_node].first  -= 0.5 * F_bx;
         node_forces[next_node].second -= 0.5 * F_by;
     }

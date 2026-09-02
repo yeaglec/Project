@@ -703,17 +703,32 @@
     </cell_rules>
 
     <user_parameters>
+        <_____mechanics_______ type="double" units="none" description="new mechanics parameters">0</_____new_mechanics_______>
         <membrane_interaction_length type="double" units="micron" description="cell membrane interaction length">100</membrane_interaction_length>
         <membrane_adhesion_strength type="double" units="micron/min" description="cell membrane adhesions strength">0</membrane_adhesion_strength>
         <membrane_spring_constant type="double" units="micron/um" description="membrane spring constant">.001</membrane_spring_constant>
         <membrane_num_points type="int" units="none" description="number of points for the membrane shape">1000</membrane_num_points>
         <ep_displacement type="double" units="micron" description="epithelial cell displacement">10</ep_displacement>
-        <membrane_deadzone type="double" units="micron/min" description="deadzone for the membrane spring force">0</membrane_deadzone>
-        <cell_deadzone type="double" units="micron/min" description="deadzone for the cell spring force">0</cell_deadzone>
+        <is_gaussian_smoothing type="double" units="micron" description="on/off switch for gaussian smoothing">1</is_gaussian_smoothing>
         <membrane_force_smoothing_sigma type="double" units="micron" description="sigma for the membrane force smoothing">0</membrane_force_smoothing_sigma>
-        <proliferation_exit_rate type="double" units="1/min" description="exit rate for proliferation">.00072</proliferation_exit_rate>
+        <Segment_Elasticity type="double" units="1/min" description="Toggle Strain Force">0</Segment_Elasticity>
+        <is_strain_lin type="double" units="micron" description="on/off switch for linear strain force">1</is_strain_lin>
+        <seg_lin type="double" units="1/min" description="segment linear parament">.1</seg_lin>
+        <seg_exp type="double" units="1/min" description="segment exponential parameter">0</seg_exp>
+        <is_restore_lin type="double" units="micron" description="on/off switch for linear restoring force">0</is_restore_lin>
+        <home_lin type="double" units="micron/min" description="home restoring linear force">0</home_lin>
+        <home_exp type="double" units="none" description="home restoring exponential force">0</home_exp>
+        <is_bending_stiffness type="double" units="micron" description="on/off switch for membrane bending force">0</is_bending_stiffness>
+        <membrane_bending_constant type="double" units="micron/min" description="membrane bending constant">4</membrane_bending_constant>
+        <is_add_membrane_nodes type="double" units="micron" description="on/off switch for adding membrane nodes">0</is_add_membrane_nodes>
+        <max_edge_length type="double" units="micron" description="maximum edge length for the membrane">0</max_edge_length>
+        <is_lumenal_pressure type="double" units="micron/min" description="on/off switch for lumenal pressure">0</is_lumenal_pressure>
+        <lumenal_pressure_strength type="double" units="micron/min" description="lumenal pressure strength">.01</lumenal_pressure_strength>
         <membrane_correction_rate type="double" units="micron/min" description="membrane repulsion strength">1</membrane_correction_rate>
         <___tests___ type="double" units="none" description="test parameter">0</___tests___>
+        <membrane_deadzone type="double" units="micron/min" description="deadzone for the membrane spring force">0</membrane_deadzone>
+        <cell_deadzone type="double" units="micron/min" description="deadzone for the cell spring force">0</cell_deadzone>
+        <proliferation_exit_rate type="double" units="1/min" description="exit rate for proliferation">.00072</proliferation_exit_rate>
         <x type="double" units="micron" description="x position of the first epithelial cell">50</x>
         <y type="double" units="micron" description="y position of the first epithelial cell">-100</y>
         <deformation_time_step type="double" units="min" description="time step for the basement membrane deformation">0</deformation_time_step>
@@ -729,20 +744,6 @@
         <CAF_rad type="double" units="micron" description="radius of the clustered cells">20</CAF_rad>
         <EP_rad type="double" units="micron" description="radius of the first epithelial cell">40</EP_rad>
         <test_pull_force type="double" units="micron/min" description="test pull force">0</test_pull_force>
-        <_____new_mechanics_______ type="double" units="none" description="new mechanics parameters">0</_____new_mechanics_______>
-        <is_gaussian_smoothing type="double" units="micron" description="on/off switch for gaussian smoothing">0</is_gaussian_smoothing>
-        <Segment_Elasticity type="double" units="1/min" description="Toggle Strain Force">0</Segment_Elasticity>
-        <is_strain_lin type="double" units="micron" description="on/off switch for linear strain force">1</is_strain_lin>
-        <seg_lin type="double" units="1/min" description="segment linear parament">.1</seg_lin>
-        <seg_exp type="double" units="1/min" description="segment exponential parameter">0</seg_exp>
-        <is_restore_lin type="double" units="micron" description="on/off switch for linear restoring force">0</is_restore_lin>
-        <home_lin type="double" units="micron/min" description="home restoring linear force">0</home_lin>
-        <home_exp type="double" units="none" description="home restoring exponential force">0</home_exp>
-        <is_bending_stiffness type="double" units="micron" description="on/off switch for membrane bending force">0</is_bending_stiffness>
-        <membrane_bending_constant type="double" units="micron/min" description="membrane bending constant">4</membrane_bending_constant>
-        <is_add_membrane_nodes type="double" units="micron" description="on/off switch for adding membrane nodes">0</is_add_membrane_nodes>
-        <max_edge_length type="double" units="micron" description="maximum edge length for the membrane">0</max_edge_length>
-        <is_lumenal_pressure type="double" units="micron/min" description="on/off switch for lumenal pressure">0</is_lumenal_pressure>
-        <lumenal_pressure_strength type="double" units="micron/min" description="lumenal pressure strength">.01</lumenal_pressure_strength>
+        
     </user_parameters>
 </PhysiCell_settings>
